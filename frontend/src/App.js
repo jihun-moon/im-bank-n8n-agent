@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 
-const BACKEND_URL = "http://175.45.194.202:3001/api/logs"; // 서버 공인 IP
+const BACKEND_URL = "http://175.45.194.202:3001/api/logs"; // 서버 IP로 변경
 
 function App() {
   const [logs, setLogs] = useState([]);
@@ -19,15 +19,16 @@ function App() {
       }
     };
 
+    // 최초 1번 + 10초마다 갱신
     fetchLogs();
-    const id = setInterval(fetchLogs, 10000); // 10초마다 새로고침
+    const id = setInterval(fetchLogs, 10000);
     return () => clearInterval(id);
   }, []);
 
   return (
     <div style={{ fontFamily: "sans-serif", padding: "20px" }}>
-      <h1>im-bank n8n Dashboard</h1>
-      <p>n8n이 백엔드로 보낸 위험 로그를 실시간으로 보여줍니다.</p>
+      <h1>im-bank n8n PII Dashboard</h1>
+      <p>n8n이 분석해서 백엔드로 보낸 개인정보 위험 로그를 표시합니다.</p>
 
       {loading ? (
         <p>불러오는 중...</p>
@@ -39,20 +40,24 @@ function App() {
             borderCollapse: "collapse",
             width: "100%",
             marginTop: "20px",
+            fontSize: "14px",
           }}
         >
           <thead>
             <tr>
               <th style={thStyle}>위험도</th>
               <th style={thStyle}>요약</th>
-              <th style={thStyle}>상세 내용</th>
-              <th style={thStyle}>수신 시간</th>
+              <th style={thStyle}>세부 설명</th>
+              <th style={thStyle}>권고사항</th>
+              <th style={thStyle}>조치</th>
+              <th style={thStyle}>소스</th>
+              <th style={thStyle}>시간</th>
             </tr>
           </thead>
           <tbody>
             {logs
               .slice()
-              .reverse() // 최신이 위로
+              .reverse() // 최신이 위로 오게
               .map((log, idx) => (
                 <tr key={idx}>
                   <td style={{ ...tdStyle, fontWeight: "bold", color: colorByRisk(log.risk) }}>
@@ -60,6 +65,9 @@ function App() {
                   </td>
                   <td style={tdStyle}>{log.summary}</td>
                   <td style={tdStyle}>{log.detail}</td>
+                  <td style={tdStyle}>{log.recommendation}</td>
+                  <td style={tdStyle}>{log.action}</td>
+                  <td style={tdStyle}>{log.source}</td>
                   <td style={tdStyle}>
                     {log.timestamp
                       ? new Date(log.timestamp).toLocaleString()
@@ -83,14 +91,15 @@ const thStyle = {
 const tdStyle = {
   border: "1px solid #ddd",
   padding: "8px",
+  verticalAlign: "top",
 };
 
 function colorByRisk(risk) {
   if (!risk) return "#000";
-  const r = risk.toLowerCase();
-  if (r.includes("high") || r.includes("위험")) return "red";
+  const r = String(risk).toLowerCase();
+  if (r.includes("high") || r.includes("위험") || r.includes("critical")) return "red";
   if (r.includes("medium") || r.includes("주의")) return "orange";
-  if (r.includes("low") || r.includes("정상")) return "green";
+  if (r.includes("low") || r.includes("safe") || r.includes("정상")) return "green";
   return "#000";
 }
 
