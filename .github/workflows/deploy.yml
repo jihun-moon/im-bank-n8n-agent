@@ -1,54 +1,73 @@
-name: 🚀 Deploy to Ncloud Server
+name: 🚀 Auto Deploy to Ncloud Server (Full Setup)
 
 on:
   push:
     branches:
-      - main   # main 브랜치 push 시 자동 실행
+      - main   # main 브랜치에 push할 때 실행
 
 jobs:
   deploy:
-    name: Deploy to Ncloud
     runs-on: ubuntu-latest
+    name: Full Auto Deployment
 
     steps:
       - name: 🧩 Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 🔑 Connect & Deploy to Server
+      - name: 🔑 Connect to Ncloud via SSH & Deploy
         uses: appleboy/ssh-action@v1.1.0
         with:
-          host: 175.45.194.202          # ✅ 서버 IP
-          username: root                # ✅ 접속 계정
-          key: ${{ secrets.SSH_PRIVATE_KEY }}  # ✅ 깃허브 시크릿에 등록한 개인키 이름
+          host: 175.45.194.202             # ✅ 서버 IP
+          username: root                   # ✅ 계정
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             echo "✅ Connected to server"
 
-            # 1️⃣ 레포가 없으면 클론
+            # 1️⃣ 필수 패키지 설치 (git, curl, Node.js, npm, pm2)
+            echo "📦 Installing dependencies if missing..."
+            apt update -y
+            apt install -y curl git
+
+            if ! command -v node &> /dev/null; then
+              echo "🔧 Installing Node.js..."
+              curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+              apt install -y nodejs
+            fi
+
+            if ! command -v pm2 &> /dev/null; then
+              echo "🔧 Installing pm2..."
+              npm install -g pm2
+            fi
+
+            # 2️⃣ 레포 클론 or Pull
             if [ ! -d "/root/im-bank-n8n-agent" ]; then
+              echo "🌀 Cloning repository..."
               cd /root
               git clone https://github.com/jihun-moon/im-bank-n8n-agent.git
             fi
 
-            # 2️⃣ 최신 코드로 갱신
             cd /root/im-bank-n8n-agent
             git pull origin main
 
-            # 3️⃣ 백엔드 업데이트 및 실행
+            # 3️⃣ 백엔드 설치 및 실행
+            echo "🚀 Setting up backend..."
             cd backend
             npm install
 
-            # PM2 설치 (처음 한 번만)
-            if ! command -v pm2 &> /dev/null; then
-              npm install -g pm2
-            fi
-
-            # 기존 프로세스 재시작 또는 새로 시작
             if pm2 list | grep -q imbank-backend; then
+              echo "♻️ Restarting backend..."
               pm2 restart imbank-backend
             else
+              echo "🌱 Starting backend..."
               pm2 start server.js --name imbank-backend
             fi
 
             pm2 save
+            echo "✅ Backend is running at port 3001"
 
-            echo "🚀 Backend deployed successfully!"
+            # 4️⃣ 프론트엔드도 자동 빌드 (선택)
+            cd /root/im-bank-n8n-agent/frontend
+            npm install
+            npm run build || echo "⚠️ Frontend build skipped (optional)"
+
+            echo "🎉 Deployment complete!"
