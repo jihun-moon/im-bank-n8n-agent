@@ -1,0 +1,1408 @@
+{
+  "name": "PII (Personally Identifiable Information) detection bot",
+  "nodes": [
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=[역할]\n당신은 IM빵크의 **보안 분석 어시스턴트** 입니다.\n사용자가 보안 관련 질문(로그/인시던트/설정/PII 등)을 입력하면 아래 규칙을 따라 응답하세요.\n\n[질문 분류]\n- 인시던트 분석형: 질문에 '로그', '유출', '백업', '계정', '로그인 실패', 'PII', '외부 전송' 등 인시던트 관련 키워드가 있으면 인시던트 분석형으로 처리.\n- 지식 설명형: 정책/절차/설정 문의이면 지식 설명형.\n- 일반 질문: 모호하면 일반 답변(권장: 추가 정보 요청).\n\n[출력 형식 — 반드시 이 형식을 따름]\n📄 **보안 분석 결과**\n- 질문 유형: (인시던트 분석 / 보안 지식 설명 / 일반 질문)\n- 위험도: High / Medium / Low / Safe / 판단 불가\n- 이벤트 유형: (예: 내부자 정보유출 / 계정 탈취 / 악성 메일 / 설정 오류 / 접근 시도 / 기타)\n- 탐지된 개인정보(PII): (있으면 유형 나열, 없으면 ‘탐지되지 않음’)\n- AI 판단 이유: (구체적 근거 2~4문장)\n- 권장 조치: (실무 단계형 권장 2~5개)\n- 유사 사례: (가능하면 1~2개 요약, 없으면 ‘유사 사례 없음’)\n\n[데이터 우선순위 — 검색 순서]\n1. 보안 지식 베이스 (vector_store_key)\n2. Notion DB (AI 인시던트 로그)\n3. 일반 보안 정책(내장 지식)\n\n[데이터 부족 시]\n- “로그 세부정보가 부족해 판단 불가”를 명시하고, 최소한으로 권장 조치(탐지/격리/로그 수집)를 제시.\n\n[추가 지침]\n- 반드시 **근거**를 명시(로그 키워드, 타임스탬프, IP 등).\n- 도구 사용 절차나 내부 API 호출 방식(툴체인)은 설명하지 말고 결과/조치만 출력.\n- 사용자 입력은 아래에 포함됩니다.\n\n---\n\n[사용자 입력]\n{{ $json.chatInput }}\n",
+        "needsFallback": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        -2688,
+        -1040
+      ],
+      "id": "3251907a-ebc4-4719-a995-640307baa274",
+      "name": "보안 분석 AI 에이전트",
+      "retryOnFail": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "지식 검색 도구 (vector_store_key). 인시던트/정책/대응 케이스를 검색해 근거로 사용.",
+        "memoryKey": {
+          "__rl": true,
+          "value": "vector_store_key",
+          "mode": "list",
+          "cachedResultName": "vector_store_key"
+        },
+        "topK": 5
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreInMemory",
+      "typeVersion": 1.3,
+      "position": [
+        -2256,
+        -736
+      ],
+      "id": "1bf0c307-c4f6-4e1a-ad2f-9ea9b24088f4",
+      "name": "보안 지식 베이스 (검색용)"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $json.sessionId || $json.session_id || $json.chatId || 'default_session' }}\n"
+      },
+      "id": "f85935fc-cd3b-488d-b957-094f5e0749fd",
+      "name": "AI 단기 메모리",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "position": [
+        -2592,
+        -448
+      ],
+      "typeVersion": 1.3
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "a94e54c8-4572-4c2e-afe7-138eb57ddb63",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -992,
+        -1024
+      ],
+      "id": "a6240fab-0ec0-44e4-b3e3-7a444f94d855",
+      "name": "보안 로그 수집 Webhook",
+      "webhookId": "a94e54c8-4572-4c2e-afe7-138eb57ddb63"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "1eb1aacc-1905-4299-aaa6-9eccbef9d6d2",
+      "name": "보안 비서 채팅 입력 트리거",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "position": [
+        -3040,
+        -1040
+      ],
+      "webhookId": "53c136fe-3e77-4709-a143-fe82746dd8b6",
+      "typeVersion": 1.1
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-pro",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -2864,
+        -720
+      ],
+      "id": "acaabdbf-51a8-4b7c-8ffd-aa458aec9247",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "xGfANTZXHA9Qgg2f",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-pro",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -128,
+        -816
+      ],
+      "id": "efe39930-7877-423c-82fc-8d5b50ae06d7",
+      "name": "Google Gemini Chat Model1",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "xGfANTZXHA9Qgg2f",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "상단 — 사용자 대화형 보안 분석 챗봇 (핵심 구조)\n\n📌 노드 요약\n이 워크플로우는 사용자의 보안 관련 질문을 자연어로 입력받아\nAI가 즉시 분석하여 위험도·유형·PII 탐지 결과·권장 조치를 제공합니다.\n(※ 실제 자동 차단이나 API 호출은 포함되지 않음 — 상담용 챗봇 전용 버전)\n\n💡 핵심 역할\n\n보안 분석 AI 에이전트\n→ 사용자의 입력 문장을 분석해 질문 의도를 분류합니다.\n→ 필요 시 Notion 인시던트 DB 조회 또는 벡터스토어(Vector Store) 검색으로 근거 확보\n→ 위험도, 탐지된 개인정보, 권장 조치 등을 근거 기반으로 응답\n\n보안 지식 베이스 (Vector Store)\n→ 과거 보안 사례, 정책, 대응 절차 등의 정보를 검색\n→ AI 분석 시 참고할 수 있는 근거 데이터 제공\n\nAI 단기 메모리\n→ 직전 5회 대화 내용을 기억하여 자연스러운 문맥 유지\n\n✨ 특징\n\n복잡한 인시던트 분석 로직 없이도 보안 질문에 즉시 답변 가능\n\nNotion DB와 벡터스토어를 활용한 근거 기반 분석\n\n위험도/PII 탐지/권장 조치/유사 사례를 포함한 설명형 결과 출력\n\nSlack이나 자동 대응 플로우 없이, 순수 상담형 보안 챗봇용 구조\n\n🧩 예시 질문\n\n“DB 백업 로그에서 개인정보 유출 징후가 보여요. 위험한가요?”\n\n“FTP 로그에 고객 이름이 포함되어 있습니다. 내부 유출일까요?”\n\n“서버 접근 로그에서 API 호출만 보이는데 안전한가요?”\n\n“악성 메일 탐지 후 어떤 절차로 대응해야 하나요?”",
+        "height": 928,
+        "width": 1872,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -3648,
+        -1232
+      ],
+      "id": "fb86a821-5a26-4d16-ac2e-5730f04cf306",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## 🟣 **자동 대응 워크플로우 개요 (최신 버전)**\n\n📌 **핵심 요약**\n이 워크플로우는 **실시간 보안 로그(Webhook)** 를 입력받아\nAI가 자동으로 인시던트를 분석 → 지식 베이스 검색 → 최종 판단 후\n위험도에 따라 **자동 대응(Slack / Firewall / IDM)** 을 실행합니다.\n\n---\n\n### 🧠 **분석 구조**\n\n1️⃣ **PII 정규식 탐지 → 로그 정규화 및 마스킹**\n\n* 이메일·전화번호·주민번호 등 개인정보를 실시간 탐지 후 마스킹\n* 민감 정보는 삭제하고 메타데이터만 분석에 사용\n\n2️⃣ **1차 AI 분석 (LLM #1)**\n\n* 원본 로그 기반으로 위험도 / 인시던트 유형 / 요약 판단\n* 분석 결과를 기반으로 벡터스토어(Security KB)에서 유사 사례 검색\n\n3️⃣ **2차 AI 분석 (LLM #2)**\n\n* 1차 결과 + 유사 사례 요약을 결합해 근거 기반의 최종 판단 생성\n* “AI 판단 이유 / 권장 조치 / 탐지된 PII / 유사 사례” 정리\n\n4️⃣ **자동 대응 분기 (Switch)**\n\n* LLM 결과의 `botAction` 값에 따라 자동 분기\n\n  * `IGNORE` → 로그만 기록\n  * `ALERT_ONLY` → Slack 알림\n  * `INVESTIGATE` → 조사 요청 (Slack/IDM)\n  * `LOCK_ACCOUNT` → 계정 차단\n  * `BLOCK_FIREWALL` → 방화벽 API 호출\n\n---\n\n### ⚙️ **보조 기능**\n\n* **Security KB (유사 인시던트 지식베이스)**\n  → 과거 보안 사례 Embedding 검색\n  → RAG 기반 참고 문장 제공 및 자동 학습 업데이트 지원\n\n* **학습 루프 (IF 분기)**\n  → 신규 로그 중 AI 분석 결과가 유의미할 경우\n  → Security KB에 자동 학습 데이터로 추가\n\n* **Notion 연동 (Database Page 생성)**\n  → 모든 분석 결과를 인시던트 로그 DB에 자동 기록\n  → 위험도·유형·탐지 PII·권장조치가 구조화되어 저장\n\n---\n\n### ⚡ **자동 대응 요약**\n\n| 위험도    | botAction      | 자동 대응  | 실행 예시                                         |\n| :----- | :------------- | :----- | :-------------------------------------------- |\n| High   | BLOCK_FIREWALL | 방화벽 차단 | POST `https://firewall.example.com/api/block` |\n| Medium | INVESTIGATE    | 조사 요청  | Slack 메시지 전송                                  |\n| Low    | ALERT_ONLY     | 알림만 발송 | Slack 알림 채널                                   |\n| Safe   | IGNORE         | 로그만 저장 | Notion 기록만                                    |\n\n---\n\n### 🧩 **특징**\n\n* 완전 자동화: 로그 입력 → 분석 → 대응 → 학습까지 전 과정 무인 처리\n* 다중 LLM 구조 (Upstage + Gemini)로 신뢰도 향상\n* PII 정규식 + 벡터스토어 기반의 **근거 중심 인시던트 판단**\n* 향후 보안 관제 시스템(SIEM)과 연동 가능\n\n\n",
+        "height": 1968,
+        "width": 4528,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1744,
+        -1232
+      ],
+      "id": "05598aae-d2ef-4c4a-b6c9-f37347a519f9",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=[마스킹된 로그]\n{{ $json.redactedSnippet }}\n\n[정규식 PII 탐지 결과]\n- found: {{ $json.pii_regex_found }}\n- types: {{ JSON.stringify($json.pii_regex_types) }}\n- summary: {{ $json.pii_regex_summary }}\n\n[메타데이터]\n- source: {{ $json.source }}\n- timestamp: {{ $json.timestamp }}\n- source_ip: {{ $json.meta.source_ip }}\n- user_id: {{ $json.meta.user_id }}\n- event_type: {{ $json.meta.event_type }}\n\n위 정보를 기반으로 개인정보 유출 관점에서의 1차 분석을 수행하세요.\n\n아래 JSON 형식으로만 응답하세요.\n\n{\n  \"risk\": \"High | Medium | Low | Safe\",\n  \"pii_found\": true or false,\n  \"pii_types\": [],\n  \"reason\": \"현재 판단 근거 (한국어)\",\n  \"recommendation\": \"보안 담당자가 바로 할 수 있는 대응 (한국어)\"\n}\n",
+        "needsFallback": true,
+        "messages": {
+          "messageValues": [
+            {
+              "message": "=당신은 기업 보안팀을 돕는 개인정보 유출 탐지 AI입니다.\n입력으로 주어지는 보안 로그(이미 이메일, 전화번호, 주민번호 등은 [EMAIL], [PHONE], [RRN], [CARD], [IP] 형태로 마스킹됨)와\n정규식 기반 PII 탐지 결과를 보고,\n개인정보 유출 관점에서의 1차 위험도를 분석하세요.\n\n반드시 아래 규칙을 지키세요:\n- 출력은 오직 JSON 한 덩어리만 반환하세요.\n- 절대로 ``` 같은 마크다운 코드블록을 사용하지 마세요.\n- JSON 앞뒤에 여분의 텍스트(설명, 문장, 주석)를 붙이지 마세요.\n- \"risk\"는 High / Medium / Low / Safe 중 하나로만 지정하세요.\n- \"pii_types\"는 [\"Email\", \"PhoneNumber\", \"RRN\", \"CardNumber\"] 중 포함되는 것만 넣으세요.\n- 맥락이 애매하면 보수적으로 판단하세요.\n"
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        -176,
+        -1024
+      ],
+      "id": "6bcf327f-26a0-4fda-b3e1-f6b021b4a238",
+      "name": "1차 분석용 프롬프트",
+      "retryOnFail": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1488,
+        -784
+      ],
+      "id": "0f1351dc-6c79-4491-932f-f856c3e90245",
+      "name": "Google Gemini Chat Model2",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "xGfANTZXHA9Qgg2f",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "databaseId": {
+          "__rl": true,
+          "value": "47023b4f-05f1-4603-90ed-7d3a1840bb8f",
+          "mode": "list",
+          "cachedResultName": "보안 인시던트 로그 (AI 자동 분석)",
+          "cachedResultUrl": "https://www.notion.so/47023b4f05f1460390ed7d3a1840bb8f"
+        },
+        "title": "={{$json.notion_title}}",
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "AI 위험도|select",
+              "selectValue": "={{$json.bot_risk_final}}"
+            },
+            {
+              "key": "이벤트 타입|select",
+              "selectValue": "={{$json.eventType_2nd}}"
+            },
+            {
+              "key": "자동 액션 코드|rich_text",
+              "textContent": "={{$json.botAction}}"
+            },
+            {
+              "key": "액션(한글 설명)|rich_text",
+              "textContent": "={{$json.botAction_human}}"
+            },
+            {
+              "key": "요약|rich_text",
+              "textContent": "={{$json.shortSummary_2nd}}"
+            },
+            {
+              "key": "분석 이유|rich_text",
+              "textContent": "={{$json.reason_2nd}}"
+            },
+            {
+              "key": "권장 조치|rich_text",
+              "textContent": "={{$json.recommendation_2nd}}"
+            },
+            {
+              "key": "PII 탐지 여부|checkbox",
+              "checkboxValue": "={{$json.pii_found_final}}"
+            },
+            {
+              "key": "PII 유형|multi_select",
+              "multiSelectValue": "={{$json.pii_types_final}}"
+            },
+            {
+              "key": "학습 대상 여부|checkbox",
+              "checkboxValue": "={{$json.ai_learn_enabled}}"
+            },
+            {
+              "key": "원본 로그|rich_text",
+              "textContent": "={{$json.Log_Detail}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        2592,
+        -784
+      ],
+      "id": "ac85f67a-7e9a-422f-8be1-7db50641b4f4",
+      "name": "Create a database page",
+      "executeOnce": false,
+      "credentials": {
+        "notionApi": {
+          "id": "69wLtMLbOkmTllib",
+          "name": "Notion account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "databaseId": {
+          "__rl": true,
+          "value": "47023b4f-05f1-4603-90ed-7d3a1840bb8f",
+          "mode": "list",
+          "cachedResultName": "보안 인시던트 로그 (AI 자동 분석)",
+          "cachedResultUrl": "https://www.notion.so/47023b4f05f1460390ed7d3a1840bb8f"
+        },
+        "filterType": "json",
+        "filterJson": "={\n  \"and\": [\n    {\n      \"property\": \"AI 위험도\",\n      \"select\": { \"does_not_equal\": \"Safe\" }\n    },\n    {\n      \"property\": \"생성 시점\",\n      \"date\": { \"on_or_before\": \"{{ $now || '' }}\" }\n    }\n  ]\n}\n",
+        "options": {
+          "sort": {
+            "sortValue": [
+              {
+                "key": "생성 일시|created_time",
+                "direction": "descending"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.notionTool",
+      "typeVersion": 2.2,
+      "position": [
+        -2384,
+        -736
+      ],
+      "id": "971ea545-05d6-468d-9367-b848f2c9db62",
+      "name": "Get many database pages in Notion",
+      "credentials": {
+        "notionApi": {
+          "id": "69wLtMLbOkmTllib",
+          "name": "Notion account"
+        }
+      },
+      "notes": "보안 인시던트 로그 Notion 데이터베이스에서\n최근 인시던트 목록을 가져오는 도구입니다.\n\n필터 설정에 따라 High / Medium / Low / Safe 등\n특정 상태의 인시던트만 조회할 수 있습니다.\n\nAI 에이전트는 이 결과를 이용해\n“총 N건 중 High x건, Medium y건 …” 형태로\n현재 위험도 분포를 요약해서 사용자에게 보고해야 합니다.\n원본 JSON 전체를 그대로 출력하지는 않습니다.\n"
+    },
+    {
+      "parameters": {
+        "description": "Notion 인시던트 로그(JSON)를 받아 요약(High/Medium/Low 개수) 및 최근 3개 인시던트 요약 문장을 반환합니다.",
+        "jsCode": "const incidents = $json.results || [];\n\nif (incidents.length === 0) {\n  return [\n    {\n      json: {\n        summary: \"현재 보안 인시던트 로그에 위험 항목이 없습니다.\"\n      }\n    }\n  ];\n}\n\nconst summary = {\n  total: incidents.length,\n  high: incidents.filter(i => i.properties?.[\"AI 위험도\"]?.select?.name === \"High\").length,\n  medium: incidents.filter(i => i.properties?.[\"AI 위험도\"]?.select?.name === \"Medium\").length,\n  low: incidents.filter(i => i.properties?.[\"AI 위험도\"]?.select?.name === \"Low\").length,\n  safe: incidents.filter(i => i.properties?.[\"AI 위험도\"]?.select?.name === \"Safe\").length\n};\n\nconst recent = incidents.slice(0, 3).map(i => {\n  const title = i.properties?.Title?.title?.[0]?.plain_text || i.name || \"무제\";\n  const risk = i.properties?.[\"AI 위험도\"]?.select?.name || \"Unknown\";\n  const brief = i.properties?.요약?.rich_text?.[0]?.plain_text || i.properties?.설명?.rich_text?.[0]?.plain_text || \"\";\n  return `- ${title} [${risk}] : ${brief}`.substring(0, 400);\n});\n\nreturn [\n  {\n    json: {\n      summary,\n      recent\n    }\n  }\n];\n"
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        -2528,
+        -736
+      ],
+      "id": "fe42e0d8-5c47-451a-a8de-dc580b1eba18",
+      "name": "Code Tool"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "0e9516a0-9f9d-41d0-b3d3-50c484b5d127",
+                    "leftValue": "={{ $json.botAction }}",
+                    "rightValue": "=IGNORE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "무시"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.botAction }}",
+                    "rightValue": "ALERT_ONLY",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "94ad77e1-8269-45dd-b6d7-1ea110d546ba"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Slack 알림"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "14343cb2-6a24-4d70-b112-4c1b126b4e21",
+                    "leftValue": "={{ $json.botAction }}",
+                    "rightValue": "INVESTIGATE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "조사 요청"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "7b4a2300-b78f-4301-a15a-97c218a88921",
+                    "leftValue": "={{ $json.botAction }}",
+                    "rightValue": "LOCK_ACCOUNT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "계정 잠금"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "6e1d3757-c9f9-4f32-acad-bd53404d5687",
+                    "leftValue": "={{ $json.botAction }}",
+                    "rightValue": "BLOCK_FIREWALL",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "접근 차단"
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        -992,
+        160
+      ],
+      "id": "f535f946-f35b-4b09-b841-002e03007ec3",
+      "name": "자동 대응 분기(Switch)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://firewall.example.com/api/block",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"user\": \"{{$json.meta.user_id || 'unknown_user'}}\",\n  \"ip\": \"{{$json.meta.source_ip || ''}}\",\n  \"risk\": \"{{$json.bot_risk_final}}\",\n  \"eventType\": \"{{$json.eventType_2nd}}\",\n  \"reason\": \"{{$json.reason_2nd}}\"\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -496,
+        480
+      ],
+      "id": "83d8363b-bcb0-4e8c-886b-0b4bf62b6b7c",
+      "name": "HTTP Request1"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const item = $json;\n\nitem.investigation_required = true;\nitem.monitoring = '강화됨';\nitem.investigation_created_at = new Date().toISOString();\nitem.investigation_note = `AI가 '${item.botAction}' 액션을 제안했습니다. 사유: ${item.shortSummary_2nd || ''}`;\n\nconsole.log(`조사 요청 생성됨: user=${item.meta?.user_id || 'N/A'}, ip=${item.meta?.source_ip || 'N/A'}`);\n\nreturn [{ json: item }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -496,
+        128
+      ],
+      "id": "9815235e-2c65-4ba8-83d0-a0213fba815f",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "content": "## 미구현",
+        "height": 800,
+        "width": 768,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1040,
+        -112
+      ],
+      "id": "c6ca21ce-3549-4193-a11a-6837aad01843",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "model": "solar-pro2",
+        "options": {}
+      },
+      "type": "n8n-nodes-upstage.lmChatModelUpstage",
+      "typeVersion": 1,
+      "position": [
+        -2864,
+        -896
+      ],
+      "id": "31b8fa7f-e965-47a8-8032-8073148f198e",
+      "name": "Upstage Solar Chat for Agent",
+      "credentials": {
+        "upstageApi": {
+          "id": "X3AEsMV3b4hsOXZf",
+          "name": "Upstage account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-upstage.embeddingsUpstageModel",
+      "typeVersion": 1,
+      "position": [
+        -2256,
+        -512
+      ],
+      "id": "0cfb92ea-13fa-4373-8616-ee5ba6512b15",
+      "name": "Upstage Embed for Agent",
+      "credentials": {
+        "upstageApi": {
+          "id": "X3AEsMV3b4hsOXZf",
+          "name": "Upstage account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "solar-pro2",
+        "options": {}
+      },
+      "type": "n8n-nodes-upstage.lmChatModelUpstage",
+      "typeVersion": 1,
+      "position": [
+        -272,
+        -816
+      ],
+      "id": "d43674f3-5621-41e0-924e-ee246bcccde7",
+      "name": "Upstage Solar Chat for Agent1",
+      "credentials": {
+        "upstageApi": {
+          "id": "X3AEsMV3b4hsOXZf",
+          "name": "Upstage account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-upstage.embeddingsUpstageModel",
+      "typeVersion": 1,
+      "position": [
+        384,
+        -752
+      ],
+      "id": "1226d34c-c829-4fae-88b8-5befe94617a7",
+      "name": "Upstage Embed for Agent2",
+      "credentials": {
+        "upstageApi": {
+          "id": "X3AEsMV3b4hsOXZf",
+          "name": "Upstage account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "solar-mini",
+        "options": {}
+      },
+      "type": "n8n-nodes-upstage.lmChatModelUpstage",
+      "typeVersion": 1,
+      "position": [
+        1360,
+        -848
+      ],
+      "id": "5e7cba31-f720-429d-8560-99e89e52024f",
+      "name": "Upstage Solar Chat for Agent2",
+      "credentials": {
+        "upstageApi": {
+          "id": "X3AEsMV3b4hsOXZf",
+          "name": "Upstage account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "let raw = $json.Log_Detail || '';\n\nif (!raw || String(raw).trim().length === 0) {\n  return {\n    ...$json,\n    redactedSnippet: '(표시할 로그 없음)',\n    redacted_for_search: '(표시할 로그 없음)'\n  };\n}\n\nlet masked = String(raw)\n  .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}/g, '[EMAIL]')\n  .replace(/\\b0\\d{1,2}-?\\d{3,4}-?\\d{4}\\b/g, '[PHONE]')\n  .replace(/\\b\\d{6}[- ]?\\d{7}\\b/g, '[RRN]')\n  .replace(/\\b(?:\\d[ -]*?){13,16}\\b/g, '[CARD]')\n  .replace(/\\b\\d{1,3}(?:\\.\\d{1,3}){3}\\b/g, '[IP]');\n\nconst MAX_LEN = 400;\nlet snippet = masked;\nif (snippet.length > MAX_LEN) {\n  snippet = snippet.slice(0, MAX_LEN) + ' ...[TRUNCATED]';\n}\n\nconst redacted_for_search =\n  `[source] ${$json.source}\\n` +\n  `[event_type] ${$json.meta?.event_type || ''}\\n` +\n  `[risk_1st] ${$json.risk_1st || '(not_yet)'}\\n` +\n  `[masked_log]\\n${snippet}`;\n\nreturn {\n  ...$json,\n\n  // 원본 로그는 여기서부터는 쓰지 않으니까 제거/무효화\n  Log_Detail: undefined,\n\n  redactedSnippet: snippet,\n  redacted_for_search\n};\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -384,
+        -1024
+      ],
+      "id": "be2435df-92c7-4493-aaa1-e4b35f0c0f61",
+      "name": "원본 로그 마스킹 및 삭제1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $json.Log_Detail || '';\n\nconst hits = new Set();      // 문자열 중복 방지\nconst types = new Set();\n\n// 1) 정규식 정의\nconst emailRegex = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}/g;\nconst phoneRegex = /\\b0\\d{1,2}-?\\d{3,4}-?\\d{4}\\b/g;\nconst rrnRegex   = /\\b\\d{6}[- ]?\\d{7}\\b/g;\n// 카드번호: 13~16자리 숫자(중간에 공백/하이픈 가능) BUT 주민번호(6-7) 패턴은 제외\nconst cardRegex  = /\\b(?!\\d{6}-\\d{7}\\b)(?:\\d[ -]*?){13,16}\\b/g;\n\n// RRN 판별 함수 (카드 필터링용)\nconst rrnPattern = /^\\d{6}-?\\d{7}$/;\n\n// 공통 수집 함수\nfunction collect(regex, type, options = {}) {\n  let m;\n  while ((m = regex.exec(text)) !== null) {\n    const value = m[0];\n\n    // 주민번호로 이미 잡힌 문자열은 카드에서 제외하는 옵션\n    if (options.skipIfRRN && rrnPattern.test(value)) {\n      continue;\n    }\n\n    hits.add(value);\n    types.add(type);\n  }\n}\n\n// 2) 탐지 순서: Email → Phone → RRN → Card\ncollect(emailRegex, 'Email');\ncollect(phoneRegex, 'PhoneNumber');\ncollect(rrnRegex,   'RRN');\n// 카드번호는 RRN 패턴 문자열은 무시\ncollect(cardRegex,  'CardNumber', { skipIfRRN: true });\n\nconst hitsArray = Array.from(hits);\nconst typesArray = Array.from(types);\nconst found = hitsArray.length > 0;\n\nreturn {\n  ...$json,\n  pii_regex_hits: hitsArray,\n  pii_regex_types: typesArray,\n  pii_regex_found: found,\n  pii_regex_summary: found\n    ? `정규식 PII 탐지됨: ${typesArray.join(', ')} (총 ${hitsArray.length}개)`\n    : '정규식 PII 패턴 없음'\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -592,
+        -1136
+      ],
+      "id": "bfce496c-ceb3-4ccb-bbdc-e1a957f14239",
+      "name": "PII 정규식 사전 탐지"
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "text": "=🚨 *{{ $json.bot_risk_final }} 위험도 인시던트 탐지됨*\n\n• 요약: {{ $json.shortSummary_2nd }}\n• 이벤트 유형: {{ $json.eventType_2nd }}\n• 계정: {{ $json.meta.user_id || 'N/A' }}\n• IP: {{ $json.meta.source_ip || 'N/A' }}\n\n• AI 권고 액션: {{ $json.botAction_human }} ({{ $json.botAction }})\n• 분석 근거:\n{{ $json.reason_2nd }}\n• 권장 조치:\n{{ $json.recommendation_2nd }}\n",
+        "otherOptions": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        -496,
+        -64
+      ],
+      "id": "00f7f020-cc76-4701-b76e-c3782744ff35",
+      "name": "Send a message",
+      "webhookId": "b7fc821a-65a1-4600-a364-d732ec278d03",
+      "disabled": true
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-upstage.embeddingsUpstageModel",
+      "typeVersion": 1,
+      "position": [
+        -272,
+        -384
+      ],
+      "id": "a3f660d1-e863-45f4-b260-5dabef473d67",
+      "name": "Upstage Embed for Agent3",
+      "credentials": {
+        "upstageApi": {
+          "id": "X3AEsMV3b4hsOXZf",
+          "name": "Upstage account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Webhook에서 온 JSON 구조 안에 body가 들어있을 수 있으므로 먼저 분리\nconst body =\n  $json.body ||          // Postman 등에서 바로 body로 들어온 경우\n  $json.meta?.extra?.body || // 네가 올려준 구조처럼 meta.extra.body 에 들어간 경우\n  {};\n\nconst raw =\n  body.raw_log ||\n  $json.raw_log ||\n  $json.message ||\n  $json.log ||\n  '';\n\n// system / time / client_ip / user_id 도 body 쪽 먼저 보고, 없으면 바깥에서 찾기\nconst system = body.system || $json.system || $json.source || 'UNKNOWN';\nconst time = body.time || $json.time || $json.timestamp || new Date().toISOString();\nconst clientIp = body.client_ip || $json.client_ip || $json.ip || '';\nconst userId = body.user_id || $json.user_id || '';\n\nreturn {\n  Log_Detail: String(raw),\n  source: system,\n  timestamp: time,\n  meta: {\n    source_ip: clientIp,\n    dest_ip: $json.dest_ip || '',\n    user_id: userId,\n    event_type: $json.event_type || $json.action || '',\n    user_agent: $json.user_agent || '',\n    // extra에는 원본 전체를 그대로 넣어둠 (디버깅용)\n    extra: $json\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -784,
+        -1024
+      ],
+      "id": "2658f25c-03df-4914-ae37-654a948fce76",
+      "name": "로그 정규화 (Code)"
+    },
+    {
+      "parameters": {
+        "mode": "load",
+        "memoryKey": {
+          "__rl": true,
+          "value": "vector_store_key",
+          "mode": "list",
+          "cachedResultName": "vector_store_key"
+        },
+        "prompt": "=[위험도] {{ $json.risk_1st }}\n[탐지된 PII] {{ ($json.pii_types_1st || []).join(', ') }}\n[이유] {{ $json.reason_1st }}\n[추천 조치] {{ $json.recommendation_1st }}\n[마스킹된 로그] {{ $json.redactedSnippet || '(없음)' }}\n",
+        "topK": 3
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreInMemory",
+      "typeVersion": 1.3,
+      "position": [
+        384,
+        -928
+      ],
+      "id": "e126eed7-d0d7-472b-9fb3-f06aa43e7cf2",
+      "name": "Security KB 검색 (유사 인시던트)",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 1) 최종 위험도\nconst riskFinal = $json.botRisk || 'Safe';\n\n// 2) 최종 PII 여부/유형 (정규식 + LLM1 둘 다 고려)\nconst piiFoundFinal = !!($json.pii_regex_found || $json.pii_found_1st);\nconst piiTypesFinal = ($json.pii_regex_types || []).filter(Boolean);\n\n// 3) Notion 제목\nconst eventType = $json.eventType_2nd || '보안 이벤트';\nconst shortSummary = $json.shortSummary_2nd || '(요약 없음)';\nconst notionTitle = `[${riskFinal}] ${eventType} - ${shortSummary}`;\n\n// 4) 액션 한글 설명\nlet botActionHuman = '';\nswitch ($json.botAction) {\n  case 'LOCK_ACCOUNT':   botActionHuman = '계정 잠금'; break;\n  case 'BLOCK_FIREWALL': botActionHuman = '방화벽 차단'; break;\n  case 'INVESTIGATE':    botActionHuman = '보안팀 조사 필요'; break;\n  case 'ALERT_ONLY':     botActionHuman = '알림만 전송'; break;\n  case 'IGNORE':\n  default:               botActionHuman = '무시'; break;\n}\n\nreturn {\n  ...$json,\n  bot_risk_final: riskFinal,\n  pii_found_final: piiFoundFinal,\n  pii_types_final: piiTypesFinal,\n  notion_title: notionTitle,\n  botAction_human: botActionHuman,\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        -896
+      ],
+      "id": "b340fb3f-eefc-4657-bff5-e215ee30ff9b",
+      "name": "최종 필드 정리"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt_llm2 }}",
+        "needsFallback": true,
+        "messages": {
+          "messageValues": [
+            {
+              "message": "=당신은 기업 보안팀의 \"보안 코파일럿\"입니다.\n입력으로 주어지는 내용(1차 분석 결과, 정규식 PII, 마스킹 로그, 유사 사례 요약)을 보고\n최종 위험도, 이벤트 타입, 자동 행동을 결정하세요.\n\n- 출력은 JSON ONLY.\n- \"botRisk\": High / Medium / Low / Safe 중 하나\n- \"eventType_2nd\": 계정 탈취 / 내부자 정보유출 / 악성 메일 / 설정 오류 / 기타 중 하나\n- \"botAction\": IGNORE / ALERT_ONLY / INVESTIGATE / LOCK_ACCOUNT / BLOCK_FIREWALL 중 하나\n- shortSummary는 60자 이내 한 줄 한국어로 작성\n"
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        1424,
+        -1040
+      ],
+      "id": "bb9ac96f-aabd-4d56-bd56-469fb720e892",
+      "name": "LLM #2 - 최종 판결"
+    },
+    {
+      "parameters": {
+        "jsCode": "const piiTypes = ($json.pii_types_1st || []).join(', ') || '(없음)';\nconst similar = $json.similar_cases_summary || '(유사 사례 없음)';\n\nconst prompt =\n`당신은 기업 내부의 보안 분석가를 돕는 개인정보 유출 탐지 보안 봇입니다.\n아래 정보를 종합하여 최종 위험도와 이벤트 유형, 자동 행동을 결정하세요.\n\n[1차 AI 분석 결과]\n- risk_1st: ${$json.risk_1st}\n- pii_found_1st: ${$json.pii_found_1st}\n- pii_types_1st: ${piiTypes}\n- reason_1st: ${$json.reason_1st}\n- recommendation_1st: ${$json.recommendation_1st}\n\n[정규식 PII 탐지 결과]\n- summary: ${$json.pii_regex_summary || '(정보 없음)'}\n\n[마스킹된 로그]\n${$json.redactedSnippet || '(로그 없음)'}\n\n[유사 사례 요약]\n${similar}\n\n위 정보를 모두 고려하여, 최종 개인정보 유출 위험도와 이벤트 유형, 자동 행동을 결정하세요.\n반드시 아래 JSON 형식으로만 응답하세요.\n\n{\n  \"botRisk\": \"High | Medium | Low | Safe\",\n  \"eventType_2nd\": \"내부자 정보유출 | 계정 탈취 | 악성 메일 | 설정 오류 | 기타\",\n  \"botAction\": \"IGNORE | ALERT_ONLY | INVESTIGATE | LOCK_ACCOUNT | BLOCK_FIREWALL\",\n  \"shortSummary\": \"사람이 한 눈에 이해할 수 있는 한 줄 요약 (한국어)\",\n  \"reason_2nd\": \"최종 판단 근거 (한국어 한두 문단)\",\n  \"recommendation_2nd\": \"보안 담당자가 취할 구체적인 조치 (한국어)\"\n}`;\n\nreturn {\n  ...$json,\n  prompt_llm2: prompt\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        -1040
+      ],
+      "id": "4fc2d256-755e-4ccd-ba89-2f3f92513cbc",
+      "name": "Code ─ 2차 분석용 프롬프트 생성"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 입력: similar_incidents 배열이 이미 붙어 있다고 가정\nconst list = $json.similar_incidents || [];\n\nif (!Array.isArray(list) || list.length === 0) {\n  return {\n    ...$json,\n    similar_cases_summary: '(유사 사례 없음)'\n  };\n}\n\nconst maxCases = 3;  // LLM에 보여줄 최대 개수\nconst lines = [];\n\nfor (let i = 0; i < Math.min(maxCases, list.length); i++) {\n  const item = list[i];\n\n  const score =\n    typeof item.score === 'number'\n      ? `${Math.round(item.score * 100)}%`\n      : '';\n\n  const label = score\n    ? `유사 사례 ${i + 1} (${score})`\n    : `유사 사례 ${i + 1}`;\n\n  const title = item.title || item.shortSummary || '(제목 없음)';\n\n  lines.push(`[${label}] ${title}`);\n}\n\nreturn {\n  ...$json,\n  similar_cases_summary: lines.join('\\n')\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        992,
+        -1040
+      ],
+      "id": "9d4e20fa-b7c6-46ae-add5-4b3775c0b880",
+      "name": "Code ─ 유사 사례 요약 텍스트 생성"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 최종 위험도 (LLM2 기준)\nconst risk = $json.botRisk || 'Safe';\n\n// PII 존재 여부\nconst piiByRegex = !!$json.pii_regex_found;\nconst piiByLLM1 = !!$json.pii_found_1st;  // 없으면 false로 처리됨\n\n// 위험도가 의미 있는 수준인지 (High / Medium)\nconst isRisky = (risk === 'High' || risk === 'Medium');\n\n// PII가 전혀 없는지\nconst noPII = !piiByRegex && !piiByLLM1;\n\n// 최종 학습 대상 여부\nconst ai_learn_enabled = isRisky && noPII;\n\nreturn {\n  ...$json,\n  ai_learn_enabled\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2208,
+        -1024
+      ],
+      "id": "c95b3c74-666c-4765-9288-791c790fa47b",
+      "name": "학습 대상 여부 계산"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "536e00fe-9d5e-4bc9-a22e-ff61cfc052e5",
+              "leftValue": "={{ $('최종 필드 정리').item.json.ai_learn_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -960,
+        -448
+      ],
+      "id": "c9e3af7c-19e0-4dac-87ef-bab43001e758",
+      "name": "IF - 학습 대상인가?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $json;\n\n// ❶ 위험도/이벤트/PII 요약\nconst risk =\n  data.bot_risk_final ||\n  data.botRisk ||\n  data.property_ai ||          // Notion 결과용\n  'Unknown';\n\nconst eventType =\n  data.eventType_2nd ||\n  data.property_ ||            // Notion 결과용\n  '기타';\n\nconst piiSummary =\n  data.pii_regex_summary ||\n  (Array.isArray(data.property_pii)\n    ? `PII 유형: ${data.property_pii.join(', ')}`\n    : 'PII 탐지 없음');\n\n// ❷ 요약/사유/조치\nconst summary =\n  data.shortSummary_2nd ||\n  data.shortSummary ||\n  data.property_title ||\n  data.name ||\n  '(요약 없음)';\n\nconst reason =\n  data.reason_2nd ||\n  data.reason_1st ||\n  '(분석 근거 없음)';\n\nconst recommendation =\n  data.recommendation_2nd ||\n  data.recommendation_1st ||\n  '(조치 없음)';\n\n// ❸ 로그\nconst log =\n  data.Log_Detail ||\n  data.redactedSnippet ||\n  '(원본 로그 미포함)';\n\n// ❹ 최종 학습 텍스트\nconst learnText = `\n[보안 인시던트 학습용 데이터]\n- 위험도: ${risk}\n- 이벤트 유형: ${eventType}\n- 요약: ${summary}\n- 분석 근거: ${reason}\n- 권장 조치: ${recommendation}\n- PII 탐지 요약: ${piiSummary}\n\n[로그 스니펫]\n${log}\n`;\n\nreturn {\n  ...data,\n  learnText,\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        -544
+      ],
+      "id": "7818f2c7-ec6b-4bd6-a702-bc0725f51052",
+      "name": "Code ─ 학습용 텍스트 생성",
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "memoryKey": {
+          "__rl": true,
+          "value": "vector_store_key",
+          "mode": "list",
+          "cachedResultName": "vector_store_key"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreInMemory",
+      "typeVersion": 1.3,
+      "position": [
+        -208,
+        -544
+      ],
+      "id": "bd4926ff-41b6-4bfc-bd0a-f9eeadc6ecfe",
+      "name": "Security KB - 학습 데이터 추가"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 이 노드는 LLM #1의 출력 한 건을 입력으로 받는다.\n// 구조 예시:\n// {\n//   \"source\": \"DB_AUDIT\",\n//   ...,\n//   \"redactedSnippet\": \"...\",\n//   \"text\": \"{ \\\"risk\\\": \\\"High\\\", \\\"pii_found\\\": true, ... }\"\n// }\n\n// 1) LLM이 준 JSON 문자열 꺼내기\nconst rawText =\n  $json.text ||      // 기본: text 필드\n  $json.llm1_raw ||  // 혹시 다른 키를 썼다면\n  $json.response ||  // 호환용\n  $json.content || '';\n\nif (!rawText) {\n  throw new Error(\n    'LLM 응답에서 text/llm1_raw/response/content 필드를 찾지 못했습니다.\\n' +\n    '현재 입력 JSON:\\n' + JSON.stringify($json, null, 2)\n  );\n}\n\n// 2) 앞뒤 공백 + ```json 코드블록 제거\nlet cleaned = String(rawText).trim();\n\ncleaned = cleaned\n  .replace(/^```[a-zA-Z]*\\n?/, '')  // 맨 앞의 ```json\\n 또는 ``` 제거\n  .replace(/```$/, '')              // 맨 뒤의 ``` 제거\n  .trim();\n\n// 3) JSON 파싱\nlet parsed;\ntry {\n  parsed = JSON.parse(cleaned);\n} catch (e) {\n  throw new Error(\n    'LLM #1 JSON 파싱 실패: ' + e.message +\n    '\\n--- rawText ---\\n' + rawText +\n    '\\n--- cleaned ---\\n' + cleaned\n  );\n}\n\n// parsed 예시:\n// {\n//   \"risk\": \"High\",\n//   \"pii_found\": true,\n//   \"pii_types\": [\"Email\",\"PhoneNumber\",\"RRN\"],\n//   \"reason\": \"...\",\n//   \"recommendation\": \"...\"\n// }\n\n// 4) 기존 필드는 그대로 두고, 1차 분석 결과만 덧입힘\nreturn {\n  ...$json,\n\n  risk_1st: parsed.risk || 'Safe',\n  pii_found_1st: !!parsed.pii_found,\n  pii_types_1st: parsed.pii_types || [],\n  reason_1st: parsed.reason || '',\n  recommendation_1st: parsed.recommendation || ''\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        -1040
+      ],
+      "id": "f6db8d7c-086b-4b3d-9b58-e483d8994133",
+      "name": "1차 LLM 결과 파싱"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Vector Store가 비어 있을 때 테스트용\nconst similar_incidents = [\n  {\n    score: 0.95,\n    title: \"[High] DB 백업 과정에서 주민번호 포함 데이터 유출 사례\",\n    shortSummary: \"svc_backup 계정이 이메일, 전화번호, 주민번호 포함 데이터를 외부 전송한 케이스\"\n  },\n  {\n    score: 0.82,\n    title: \"[Medium] 백업 로그 내 주민번호 필드 노출 사례\",\n    shortSummary: \"로그 파일 내 주민번호가 마스킹되지 않은 문제로 탐지됨\"\n  },\n  {\n    score: 0.77,\n    title: \"[Low] 데이터 백업 중 개인정보 필드 검증 미비\",\n    shortSummary: \"PII 검증 로직 누락으로 백업 파일에 개인정보 포함\"\n  }\n];\n\nreturn {\n  ...$json,\n  similar_incidents\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        736,
+        -928
+      ],
+      "id": "35d5967c-841b-424a-8667-26e5dc068f5f",
+      "name": "Code – Security KB 결과 정리"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 1) LLM #2 응답(JSON 문자열) 꺼내기\nconst rawText =\n  $json.text ||      // LLM 노드가 text 필드에 넣어준 응답\n  $json.response ||  // 다른 형태 대비\n  $json.content ||   // chat-style 대비\n  '';\n\nif (!rawText) {\n  throw new Error(\n    'LLM #2 응답에서 text/response/content 필드를 찾지 못했습니다.\\n' +\n    '현재 입력 JSON:\\n' + JSON.stringify($json, null, 2)\n  );\n}\n\n// 2) ```json ... ``` 방어 + JSON 파싱\nlet cleaned = String(rawText).trim()\n  .replace(/^```[a-zA-Z]*\\n?/, '')\n  .replace(/```$/, '')\n  .trim();\n\nlet parsed;\ntry {\n  parsed = JSON.parse(cleaned);\n} catch (e) {\n  throw new Error(\n    'LLM #2 JSON 파싱 실패: ' + e.message +\n    '\\n--- rawText ---\\n' + rawText +\n    '\\n--- cleaned ---\\n' + cleaned\n  );\n}\n\n// 3) 기존 데이터($json) 그대로 유지하면서, 그 위에 LLM #2 필드만 덧붙이기\nreturn {\n  ...$json,\n\n  botRisk: parsed.botRisk || 'Medium',\n  eventType_2nd: parsed.eventType_2nd || '기타',\n  botAction: parsed.botAction || 'ALERT_ONLY',\n  shortSummary_2nd: parsed.shortSummary || '',\n  reason_2nd: parsed.reason_2nd || '',\n  recommendation_2nd: parsed.recommendation_2nd || '',\n\n  // 디버깅용으로 원본 text도 남겨두고 싶으면:\n  llm2_raw: rawText,\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1744,
+        -1040
+      ],
+      "id": "e4051e5e-6b79-458e-98d9-f48ea95c398b",
+      "name": "LLM #2 결과 파싱"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2000,
+        -1120
+      ],
+      "id": "cd1f7caa-63e8-4d5a-a83d-60b5d2bc7dd0",
+      "name": "Merge ─ LLM2 결과 + PII 정규식 결과 통합"
+    },
+    {
+      "parameters": {
+        "options": {
+          "metadata": {
+            "metadataValues": [
+              {
+                "name": "text",
+                "value": "={{ $json.learnText || '' }}\n"
+              },
+              {
+                "name": "risk",
+                "value": "={{ $json.bot_risk_final || $json.botRisk || $json.property_ai || 'Unknown' }}\n"
+              },
+              {
+                "name": "eventType",
+                "value": "={{ $json.eventType_2nd || $json.property_ || '기타' }}\n"
+              },
+              {
+                "name": "pii",
+                "value": "={{ \n  $json.pii_regex_summary \n  || (\n    Array.isArray($json.property_pii)\n      ? 'PII 유형: ' + $json.property_pii.join(', ')\n      : 'PII 탐지 없음'\n  ) \n}}\n"
+              },
+              {
+                "name": "source",
+                "value": "={{ $json.source || $json.system || $json.meta?.body?.system || 'SECURITY_PIPELINE' }}\n"
+              },
+              {
+                "name": "title",
+                "value": "={{ $json.notion_title || $json.property_title || $json.name || '제목 없음' }}"
+              }
+            ]
+          }
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1.1,
+      "position": [
+        -112,
+        -384
+      ],
+      "id": "2aaae4af-9288-4aab-b7d2-51fd765c2391",
+      "name": "Default Data Loader"
+    },
+    {
+      "parameters": {
+        "url": "=https://idm.example.com/lock?user={{ $json.meta.user_id }}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -496,
+        304
+      ],
+      "id": "d973d3e1-ddb4-4687-9ab1-b4144af64d9f",
+      "name": "HTTP Request",
+      "notes": "계정 잠금"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "보안 분석 AI 에이전트": {
+      "main": [
+        []
+      ]
+    },
+    "보안 지식 베이스 (검색용)": {
+      "ai_tool": [
+        [
+          {
+            "node": "보안 분석 AI 에이전트",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI 단기 메모리": {
+      "ai_memory": [
+        [
+          {
+            "node": "보안 분석 AI 에이전트",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "보안 로그 수집 Webhook": {
+      "main": [
+        [
+          {
+            "node": "로그 정규화 (Code)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "보안 비서 채팅 입력 트리거": {
+      "main": [
+        [
+          {
+            "node": "보안 분석 AI 에이전트",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "보안 분석 AI 에이전트",
+            "type": "ai_languageModel",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "1차 분석용 프롬프트",
+            "type": "ai_languageModel",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "1차 분석용 프롬프트": {
+      "main": [
+        [
+          {
+            "node": "1차 LLM 결과 파싱",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "LLM #2 - 최종 판결",
+            "type": "ai_languageModel",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Get many database pages in Notion": {
+      "ai_tool": [
+        [
+          {
+            "node": "보안 분석 AI 에이전트",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "보안 분석 AI 에이전트",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "자동 대응 분기(Switch)": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upstage Solar Chat for Agent": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "보안 분석 AI 에이전트",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upstage Embed for Agent": {
+      "ai_embedding": [
+        [
+          {
+            "node": "보안 지식 베이스 (검색용)",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upstage Solar Chat for Agent1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "1차 분석용 프롬프트",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upstage Embed for Agent2": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Security KB 검색 (유사 인시던트)",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upstage Solar Chat for Agent2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "LLM #2 - 최종 판결",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "원본 로그 마스킹 및 삭제1": {
+      "main": [
+        [
+          {
+            "node": "1차 분석용 프롬프트",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PII 정규식 사전 탐지": {
+      "main": [
+        [
+          {
+            "node": "원본 로그 마스킹 및 삭제1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge ─ LLM2 결과 + PII 정규식 결과 통합",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a database page": {
+      "main": [
+        [
+          {
+            "node": "IF - 학습 대상인가?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upstage Embed for Agent3": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Security KB - 학습 데이터 추가",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "로그 정규화 (Code)": {
+      "main": [
+        [
+          {
+            "node": "PII 정규식 사전 탐지",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Security KB 검색 (유사 인시던트)": {
+      "main": [
+        [
+          {
+            "node": "Code – Security KB 결과 정리",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "최종 필드 정리": {
+      "main": [
+        [
+          {
+            "node": "Create a database page",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "자동 대응 분기(Switch)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM #2 - 최종 판결": {
+      "main": [
+        [
+          {
+            "node": "LLM #2 결과 파싱",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code ─ 2차 분석용 프롬프트 생성": {
+      "main": [
+        [
+          {
+            "node": "LLM #2 - 최종 판결",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code ─ 유사 사례 요약 텍스트 생성": {
+      "main": [
+        [
+          {
+            "node": "Code ─ 2차 분석용 프롬프트 생성",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "학습 대상 여부 계산": {
+      "main": [
+        [
+          {
+            "node": "최종 필드 정리",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - 학습 대상인가?": {
+      "main": [
+        [
+          {
+            "node": "Code ─ 학습용 텍스트 생성",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Code ─ 학습용 텍스트 생성": {
+      "main": [
+        [
+          {
+            "node": "Security KB - 학습 데이터 추가",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1차 LLM 결과 파싱": {
+      "main": [
+        [
+          {
+            "node": "Code ─ 유사 사례 요약 텍스트 생성",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Security KB 검색 (유사 인시던트)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code – Security KB 결과 정리": {
+      "main": [
+        [
+          {
+            "node": "Code ─ 유사 사례 요약 텍스트 생성",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM #2 결과 파싱": {
+      "main": [
+        [
+          {
+            "node": "Merge ─ LLM2 결과 + PII 정규식 결과 통합",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge ─ LLM2 결과 + PII 정규식 결과 통합": {
+      "main": [
+        [
+          {
+            "node": "학습 대상 여부 계산",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Default Data Loader": {
+      "ai_document": [
+        [
+          {
+            "node": "Security KB - 학습 데이터 추가",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "b5a56c73-2725-45f8-971e-12d1063ea260",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "9aaaf3aa8f67d9e72dc175be9e8aea45ea7ff9273685b98d92ef9113b62da103"
+  },
+  "id": "1hvCzZqU2DjsAPz4",
+  "tags": []
+}
