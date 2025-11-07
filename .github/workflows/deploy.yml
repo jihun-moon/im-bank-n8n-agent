@@ -15,7 +15,7 @@ jobs:
       - name: SSH & deploy
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: 223.xxx.xxx.xxx          # ★ 여기 서버 IP로 변경
+          host: 175.45.194.202          # ★ 여기 서버 IP로 변경
           username: root                 # 지금 접속하는 계정
           key: ${{ secrets.CI_SSH_KEY }} # 아까 만든 GitHub Secret 이름
           script: |
