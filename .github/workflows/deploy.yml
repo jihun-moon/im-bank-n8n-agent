@@ -1,0 +1,39 @@
+name: Deploy to Ncloud server
+
+on:
+  push:
+    branches: [ main ]   # main 브랜치에 push 될 때마다 실행
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: SSH & deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 223.xxx.xxx.xxx          # ★ 여기 서버 IP로 변경
+          username: root                 # 지금 접속하는 계정
+          key: ${{ secrets.CI_SSH_KEY }} # 아까 만든 GitHub Secret 이름
+          script: |
+            echo "✅ Connected to server"
+            cd /root/im-bank-n8n-agent
+
+            # git 최신 코드 가져오기
+            git pull origin main
+
+            # 백엔드 의존성 설치 (처음/변경 시)
+            cd backend
+            npm install
+            # pm2로 백엔드 재시작 (나중에 pm2 설치 후 사용)
+            # pm2 restart im-bank-backend || pm2 start server.js --name im-bank-backend
+
+            # 프론트엔드 빌드 (선택)
+            cd ../frontend
+            npm install
+            npm run build
+
+            echo "🚀 Deploy finished"
