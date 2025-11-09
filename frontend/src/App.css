@@ -1,0 +1,356 @@
+/* =========================================================
+   🎯 SecureFlow Dashboard Style (Real-time Optimized)
+   ========================================================= */
+
+/* 전체 앱 기본 스타일 */
+.app-root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #050816;
+  color: #f9fafb;
+  min-height: 100vh;
+  padding: 24px;
+  transition: background 0.3s ease;
+}
+
+/* 헤더 */
+.app-header {
+  margin-bottom: 24px;
+}
+.app-header h1 {
+  font-size: 24px;
+  margin-bottom: 8px;
+}
+.app-subtitle {
+  font-size: 14px;
+  color: #9ca3af;
+  line-height: 1.5;
+}
+
+/* =========================================================
+   📊 상단 통계 카드 – 반응형
+   ========================================================= */
+.stats-section {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.stat-card {
+  background: #111827;
+  border-radius: 8px;
+  padding: 12px 16px;
+  border: 1px solid #1f2937;
+  transition: transform 0.2s ease, border-color 0.3s ease;
+}
+.stat-card:hover {
+  transform: translateY(-2px);
+  border-color: #2563eb;
+}
+.stat-label {
+  font-size: 12px;
+  color: #9ca3af;
+}
+.stat-value {
+  font-size: 20px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+/* PII 카드 하이라이트 */
+.stat-card-pii {
+  border-color: rgba(248, 113, 113, 0.5);
+  box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.3);
+}
+
+/* =========================================================
+   ⚙️ 필터 / 컨트롤 영역
+   ========================================================= */
+.controls-section {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  gap: 8px;
+}
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.filter-label {
+  font-size: 13px;
+  color: #9ca3af;
+}
+.filter-btn {
+  border: 1px solid #374151;
+  background: #111827;
+  color: #e5e7eb;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+.filter-btn:hover {
+  background: #1e3a8a;
+}
+.filter-btn.active {
+  background: #2563eb;
+  border-color: #2563eb;
+  box-shadow: 0 0 8px rgba(37, 99, 235, 0.5);
+}
+.refresh-btn {
+  border-radius: 999px;
+  border: 1px solid #4b5563;
+  padding: 4px 12px;
+  font-size: 12px;
+  background: #111827;
+  color: #e5e7eb;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+.refresh-btn:hover {
+  background: #1f2937;
+}
+
+/* =========================================================
+   🧠 시뮬레이션 배너
+   ========================================================= */
+.sim-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #0b1120;
+  border-radius: 10px;
+  border: 1px solid #1f2937;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  gap: 16px;
+}
+.sim-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sim-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(220, 38, 38, 0.16);
+  color: #fecaca;
+  border: 1px solid rgba(248, 113, 113, 0.6);
+  width: fit-content;
+}
+.sim-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #f97316;
+  box-shadow: 0 0 8px rgba(249, 115, 22, 0.9);
+  animation: blink 1s infinite ease-in-out;
+}
+@keyframes blink {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+.sim-text-main {
+  font-size: 13px;
+  font-weight: 600;
+}
+.sim-text-sub {
+  font-size: 11px;
+  color: #9ca3af;
+}
+.sim-right {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: right;
+  font-size: 11px;
+}
+.sim-meta-line {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.sim-meta-label {
+  color: #9ca3af;
+}
+.sim-meta-value {
+  color: #e5e7eb;
+  font-weight: 500;
+}
+
+/* =========================================================
+   📋 로그 테이블
+   ========================================================= */
+.table-section {
+  margin-top: 8px;
+}
+.table-header-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.table-section h2 {
+  font-size: 16px;
+  margin: 0;
+}
+.table-subtitle {
+  font-size: 12px;
+  color: #9ca3af;
+}
+.table-wrapper {
+  border-radius: 8px;
+  border: 1px solid #1f2937;
+  overflow: hidden;
+}
+.logs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.logs-table th,
+.logs-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #1f2937;
+  vertical-align: top;
+}
+.logs-table th {
+  background: #111827;
+  text-align: left;
+  white-space: nowrap;
+}
+.logs-table tr:nth-child(even) td {
+  background: #020617;
+}
+.loading,
+.empty {
+  padding: 16px;
+  font-size: 13px;
+  color: #9ca3af;
+}
+
+/* =========================================================
+   🧩 학습 상태 Progress
+   ========================================================= */
+.learn-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.progress-track {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.progress-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #6b7280, #9ca3af);
+  transition: width 0.4s ease;
+}
+.progress-bar-active {
+  background: linear-gradient(90deg, #8b5cf6, #a855f7);
+  animation: progress-pulse 1.2s infinite ease-in-out;
+}
+.progress-bar-done {
+  background: linear-gradient(90deg, #22c55e, #4ade80);
+}
+@keyframes progress-pulse {
+  0% { opacity: 0.6; }
+  50% { opacity: 1; }
+  100% { opacity: 0.6; }
+}
+
+/* =========================================================
+   🧾 아코디언 (서랍 상세)
+   ========================================================= */
+.row-main { cursor: pointer; transition: background 0.2s ease; }
+.row-main:hover { background: rgba(148,163,184,0.08); }
+.row-open { background: rgba(148,163,184,0.12); }
+.detail-box {
+  padding: 10px 12px 14px;
+  background: rgba(15,23,42,0.9);
+  border-radius: 10px;
+  border: 1px solid rgba(148,163,184,0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: fadeIn 0.3s ease;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.detail-row {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+}
+.detail-label {
+  flex: 0 0 120px;
+  color: #9ca3af;
+}
+.detail-value {
+  flex: 1;
+  color: #e5e7eb;
+}
+.detail-log {
+  margin-top: 4px;
+  padding: 8px 10px;
+  background: rgba(15,23,42,0.95);
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+.toggle-cell {
+  text-align: center;
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+/* =========================================================
+   🎖 뱃지
+   ========================================================= */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+}
+.badge-high { background: #b91c1c; color: #fff; }
+.badge-medium { background: #ea580c; color: #fff; }
+.badge-safe { background: #16a34a; color: #fff; }
+.badge-queue { background: #0ea5e9; color: #fff; }
+.badge-learned { background: #7c3aed; color: #fff; }
+.badge-default { background: #4b5563; color: #fff; }
+.badge-source { background: rgba(55,65,81,0.7); color: #e5e7eb; }
+
+/* =========================================================
+   💡 실시간 효과 (SSE용)
+   ========================================================= */
+.highlight-glow {
+  animation: glowFlash 0.8s ease-in-out;
+}
+@keyframes glowFlash {
+  0% { box-shadow: inset 0 0 60px rgba(59,130,246,0.3); }
+  100% { box-shadow: inset 0 0 0 rgba(59,130,246,0); }
+}
+.glow-border {
+  box-shadow: 0 0 4px rgba(59,130,246,0.25);
+}
+@keyframes glowPulse {
+  0%,100% { box-shadow: 0 0 6px rgba(59,130,246,0.2); }
+  50% { box-shadow: 0 0 14px rgba(59,130,246,0.6); }
+}
