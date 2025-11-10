@@ -11,6 +11,9 @@ module.exports = {
         N8N_SECURE_COOKIE: false,
         N8N_LISTEN_ADDRESS: "0.0.0.0",
       },
+      autorestart: true,      // 죽으면 무조건 다시 켜라
+      max_restarts: 20,       // 최대 재시작 횟수 (너무 많아도 됨)
+      restart_delay: 5000,    // 재시작 사이 딜레이(ms) - 5초
     },
 
     // --- 2. Backend ------------------------------------------------
@@ -23,9 +26,12 @@ module.exports = {
         NODE_ENV: "production",
         PORT: 3001,
       },
+      autorestart: true,
+      max_restarts: 20,
+      restart_delay: 5000,
     },
 
-    // --- 3. Frontend ------------------------------------------------
+    // --- 3. Frontend -----------------------------------------------
     {
       name: "imbank-frontend",
       script: "npx",
@@ -34,7 +40,9 @@ module.exports = {
       env: {
         NODE_ENV: "production",
       },
+      autorestart: true,
+      max_restarts: 20,
+      restart_delay: 5000,
     },
   ],
 };
-
