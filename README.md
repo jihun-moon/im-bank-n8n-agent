@@ -176,8 +176,8 @@ npm install
 npm run dev
 ```
 
-대시보드 접속: [http://localhost:5173](http://localhost:5173)  
-API 서버: [http://localhost:3001](http://localhost:3001)
+대시보드 접속: [http://YOUR_SERVER_IP:3000](http://YOUR_SERVER_IP:300)  
+API 서버: [http://YOUR_SERVER_IP:300](http://YOUR_SERVER_IP:300)
 
 ---
 
