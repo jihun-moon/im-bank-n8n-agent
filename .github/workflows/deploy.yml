@@ -1,14 +1,31 @@
-name: 🚀 Auto Deploy to Ncloud Server (Full Setup)
+name: 🚀 Auto Deploy & NCP VPC Control (Lab + Keep Alive)
 
 on:
+  # 1) main 브랜치에 push될 때 자동 배포
   push:
     branches:
-      - main   # main 브랜치에 push할 때 실행
+      - main
+
+  # 2) 스케줄 작업
+  schedule:
+    # 매일 00:00 UTC = 09:00 KST → 정시 기동용
+    - cron: "0 0 * * *"
+    # 30분마다 → keep-alive용 (허용 시간 되자마자 바로 켜지게)
+    - cron: "*/30 * * * *"
+
+  # 3) 필요할 때 수동 실행
+  workflow_dispatch:
+
 
 jobs:
+  # ===============================
+  # 🔹 1. 코드 변경 시 자동 배포 Job
+  # ===============================
   deploy:
-    runs-on: ubuntu-latest
     name: Full Auto Deployment
+    runs-on: ubuntu-latest
+    # 👉 push 이벤트에서만 동작 (schedule/수동 실행 때는 배포 안 함)
+    if: github.event_name == 'push'
 
     steps:
       - name: 🧩 Checkout Repository
@@ -71,3 +88,107 @@ jobs:
             npm run build || echo "⚠️ Frontend build skipped (optional)"
 
             echo "🎉 Deployment complete!"
+
+
+  # ===============================
+  # 🔹 2. 매일 09:00 KST 정시 기동 Job
+  # ===============================
+  start-vpc-server:
+    name: Start NCP VPC Server (09:00 KST)
+    runs-on: ubuntu-latest
+    # 👉 매일 0 0 * * * 스케줄일 때 + 수동 실행일 때만
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.event.schedule == '0 0 * * *')
+
+    steps:
+      - name: 🕒 Print info (KST 날짜 체크)
+        run: |
+          echo "UTC now:    $(date -u)"
+          echo "KST (UTC+9): $(TZ=Asia/Seoul date)"
+
+      - name: ☁️ Start Naver Cloud VPC Server (Daily Boot)
+        env:
+          NCP_ACCESS_KEY: ${{ secrets.NCP_ACCESS_KEY }}
+          NCP_SECRET_KEY: ${{ secrets.NCP_SECRET_KEY }}
+          NCP_SERVER_INSTANCE_NO: ${{ secrets.NCP_SERVER_INSTANCE_NO }}
+        run: |
+          # 🔒 실습 계정 전체 기간 제한 (2025-11-21 이후엔 자동 기동 X)
+          END_DATE="2025-11-21"
+          TODAY_KST=$(TZ=Asia/Seoul date +"%Y-%m-%d")
+
+          if [[ "$TODAY_KST" > "$END_DATE" ]]; then
+            echo "⏹ 실습 기간($END_DATE) 지났으므로 자동 시작 건너뜀"
+            exit 0
+          fi
+
+          echo "📅 오늘(KST): $TODAY_KST, VPC 서버 정시 기동 시도"
+
+          METHOD="GET"
+          BASE_URL="https://ncloud.apigw.ntruss.com"
+          REQUEST_PATH="/vserver/v2/startServerInstances"
+          QUERY="serverInstanceNoList.1=${NCP_SERVER_INSTANCE_NO}"
+
+          TIMESTAMP=$(($(date +%s%N)/1000000))
+          MESSAGE="${METHOD} ${REQUEST_PATH}?${QUERY}\n${TIMESTAMP}\n${NCP_ACCESS_KEY}"
+
+          SIGNATURE=$(echo -en "${MESSAGE}" \
+            | openssl dgst -sha256 -hmac "${NCP_SECRET_KEY}" -binary | base64)
+
+          echo "🔐 Signature 생성 완료, VPC API 호출 시작..."
+
+          curl -G "${BASE_URL}${REQUEST_PATH}" \
+            -d "${QUERY}" \
+            -H "x-ncp-apigw-timestamp: ${TIMESTAMP}" \
+            -H "x-ncp-iam-access-key: ${NCP_ACCESS_KEY}" \
+            -H "x-ncp-apigw-signature-v2: ${SIGNATURE}" \
+            -H "Content-Type: application/json" \
+            -v
+
+
+  # ===============================
+  # 🔹 3. 30분마다 Keep-Alive Job
+  #     → 실습 시간 밖에서도 계속 켜보려고 시도
+  # ===============================
+  keep-alive:
+    name: Keep NCP VPC Server Alive (Every 30min)
+    runs-on: ubuntu-latest
+    # 👉 30분 스케줄일 때 + 수동 실행일 때만
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.event.schedule == '*/30 * * * *')
+
+    steps:
+      - name: 🔁 Try to (Re)Start Naver Cloud VPC Server
+        env:
+          NCP_ACCESS_KEY: ${{ secrets.NCP_ACCESS_KEY }}
+          NCP_SECRET_KEY: ${{ secrets.NCP_SECRET_KEY }}
+          NCP_SERVER_INSTANCE_NO: ${{ secrets.NCP_SERVER_INSTANCE_NO }}
+        run: |
+          # 🔒 실습 기간 전체 범위 제한
+          END_DATE="2025-11-21"
+          TODAY_KST=$(TZ=Asia/Seoul date +"%Y-%m-%d")
+
+          if [[ "$TODAY_KST" > "$END_DATE" ]]; then
+            echo "⏹ 실습 기간($END_DATE) 지났으므로 keep-alive 중단"
+            exit 0
+          fi
+
+          echo "🕓 [Keep-Alive] KST Today: $TODAY_KST - 서버 (재)기동 시도"
+
+          METHOD="GET"
+          BASE_URL="https://ncloud.apigw.ntruss.com"
+          REQUEST_PATH="/vserver/v2/startServerInstances"
+          QUERY="serverInstanceNoList.1=${NCP_SERVER_INSTANCE_NO}"
+
+          TIMESTAMP=$(($(date +%s%N)/1000000))
+          MESSAGE="${METHOD} ${REQUEST_PATH}?${QUERY}\n${TIMESTAMP}\n${NCP_ACCESS_KEY}"
+
+          SIGNATURE=$(echo -en "${MESSAGE}" \
+            | openssl dgst -sha256 -hmac "${NCP_SECRET_KEY}" -binary | base64)
+
+          curl -G "${BASE_URL}${REQUEST_PATH}" \
+            -d "${QUERY}" \
+            -H "x-ncp-apigw-timestamp: ${TIMESTAMP}" \
+            -H "x-ncp-iam-access-key: ${NCP_ACCESS_KEY}" \
+            -H "x-ncp-apigw-signature-v2: ${SIGNATURE}" \
+            -H "Content-Type: application/json" \
+            -s -o /dev/stdout -w "\nHTTP Status: %{http_code}\n"
+
+          echo "✅ Keep-alive ping complete."
