@@ -85,11 +85,18 @@ function App() {
   const credCount = logs.filter((l) => l.incident_category === "credential_abuse").length;
   const misconfCount = logs.filter((l) => l.incident_category === "misconfiguration").length;
 
-  // ---------- 중복 제거 (테스트용: 그대로 사용) ----------
-  console.log("📡 logs from backend >>>", logs);   // 디버깅용
-  const dedupedLogs = logs;
+  // ---------- 중복 제거 ----------
+  const dedupedLogs = (() => {
+    const seen = new Set();
+    return logs.filter((log) => {
+      const key = log.id || `${log.log_detail || log.Log_Detail || ""}::${log.timestamp || ""}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  })();
 
-    // ---------- 필터 ----------
+  // ---------- 필터 ----------
   const filteredLogs = dedupedLogs.filter((log) => {
     if (selectedRisk !== "ALL" && log.risk !== selectedRisk) return false;
     if (selectedCategory !== "ALL" && log.incident_category !== selectedCategory)
