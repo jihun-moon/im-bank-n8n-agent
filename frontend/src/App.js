@@ -89,12 +89,13 @@ function App() {
   const dedupedLogs = (() => {
     const seen = new Set();
     return logs.filter((log) => {
-      const key = `${log.log_detail || log.Log_Detail || ""}::${log.timestamp || ""}`;
+      const key = log.id || `${log.log_detail || log.Log_Detail || ""}::${log.timestamp || ""}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
   })();
+
 
   // ---------- 필터 ----------
   const filteredLogs = dedupedLogs.filter((log) => {
