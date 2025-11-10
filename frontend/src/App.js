@@ -89,7 +89,7 @@ function App() {
   console.log("📡 logs from backend >>>", logs);   // 디버깅용
   const dedupedLogs = logs;
 
-  // ---------- 필터 ----------
+    // ---------- 필터 ----------
   const filteredLogs = dedupedLogs.filter((log) => {
     if (selectedRisk !== "ALL" && log.risk !== selectedRisk) return false;
     if (selectedCategory !== "ALL" && log.incident_category !== selectedCategory)
