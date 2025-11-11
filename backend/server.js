@@ -1,10 +1,10 @@
 // ==========================================================
 // 🧠 SecureFlow / im-bank-n8n-agent Backend Server
 // ==========================================================
-// - n8n → 로그 분석 결과 수신
-// - React Dashboard → 실시간 로그 표시 (SSE)
-// - 학습 상태 업데이트 및 KB 데이터 관리
-// - 💾 JSON 파일 기반 로컬 스토리지
+// - n8n → 로그 분석 결과 수신 (POST /api/logs)
+// - React Dashboard → 실시간 로그 표시 (SSE /events)
+// - Security KB 관리 및 요약(/api/summary)
+// - 💾 JSON 파일 기반 로컬 스토리지 (logs.json, kb.json)
 // ==========================================================
 
 const express = require("express");
@@ -94,7 +94,7 @@ app.get("/", (req, res) => {
 });
 
 // ==========================================================
-// 🚀 [1] n8n → 로그 저장
+// 🚀 [1] n8n → 로그 저장 (신규/갱신)  ★ API는 n8n, 실시간은 여기서 담당
 // ==========================================================
 app.post("/api/logs", (req, res) => {
   const log = req.body;
@@ -111,7 +111,9 @@ app.post("/api/logs", (req, res) => {
   }
 
   saveJson(LOG_FILE, logs);
-  console.log(`[NEW LOG] ${log.id} | ${log.risk || "?"} | ${log.summary || ""}`);
+  console.log(
+    `[NEW LOG] ${log.id} | ${log.risk || "?"} | ${log.summary || ""}`
+  );
 
   // SSE 전송
   broadcastLogs();
@@ -119,39 +121,16 @@ app.post("/api/logs", (req, res) => {
 });
 
 // ==========================================================
-// 📜 [2] 프론트 → 로그 전체 조회
+// 📜 [2] 프론트 → 로그 전체 조회 / 상태 업데이트
 // ==========================================================
-app.get("/api/logs", (req, res) => {
-  const sorted = [...logs].sort((a, b) => {
-    const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-    const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-    return tb - ta;
-  });
-  res.json(sorted);
-});
+// 👉 이 부분은 이제 n8n Webhook에서 처리하므로 서버에서는 제거.
+//    (React는 /webhook/api/logs, /webhook/api/logs/:id 로 요청)
+// ----------------------------------------------------------
+// app.get("/api/logs", (req, res) => { ... });
+// app.put("/api/logs/:id", (req, res) => { ... });
 
 // ==========================================================
-// 🧭 [3] 로그 상태 업데이트 (학습 완료 등)
-// ==========================================================
-app.put("/api/logs/:id", (req, res) => {
-  const id = req.params.id;
-  const idx = logIndex.get(id);
-  if (idx === undefined) {
-    return res.status(404).json({ ok: false, error: "해당 id의 로그가 없습니다." });
-  }
-
-  const update = req.body || {};
-  logs[idx] = { ...logs[idx], ...update };
-
-  saveJson(LOG_FILE, logs);
-  console.log(`[UPDATE LOG] ${id} updated with`, update);
-
-  broadcastLogs();
-  res.json({ ok: true });
-});
-
-// ==========================================================
-// 🧠 [4] Security KB 학습 데이터 추가
+// 🧠 [3] Security KB 학습 데이터 추가
 // ==========================================================
 app.post("/security-kb", (req, res) => {
   const item = req.body;
@@ -168,12 +147,16 @@ app.post("/security-kb", (req, res) => {
   kbItems.push(kbItem);
   saveJson(KB_FILE, kbItems);
 
-  console.log(`[KB ADD] id=${kbItem.id}, risk=${kbItem.risk || "?"}, log=${kbItem.meta?.log_id || "N/A"}`);
+  console.log(
+    `[KB ADD] id=${kbItem.id}, risk=${kbItem.risk || "?"}, log=${
+      kbItem.meta?.log_id || "N/A"
+    }`
+  );
   res.json({ ok: true });
 });
 
 // ==========================================================
-// 📚 [4-1] KB 예시 조회
+// 📚 [3-1] KB 예시 조회
 // ==========================================================
 app.get("/security-kb/examples", (req, res) => {
   const { category, risk, limit = 3 } = req.query;
@@ -197,7 +180,8 @@ app.get("/security-kb/examples", (req, res) => {
 });
 
 // ==========================================================
-// 📊 [5] 대시보드 요약 / 디버그
+// 📊 [4] 대시보드 요약 / 디버그
+//     (로그 원본은 n8n에도 있지만, SSE용 메모리 캐시 기반으로 계산)
 // ==========================================================
 app.get("/api/summary", (req, res) => {
   const total = logs.length;
@@ -236,5 +220,7 @@ app.get("/debug/kb", (req, res) => {
 // 🚦 서버 시작
 // ==========================================================
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ SecureFlow backend listening on http://0.0.0.0:${PORT}`);
+  console.log(
+    `✅ SecureFlow backend listening on http://0.0.0.0:${PORT}`
+  );
 });
