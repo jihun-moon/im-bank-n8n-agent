@@ -2,7 +2,9 @@
 import React, { useEffect, useState } from "react";
 import "./App.css";
 
-const BACKEND_BASE = "http://175.45.194.202:3001";
+const NODE_BACKEND_BASE = "http://175.45.194.202:3001";           // SSE, summary 등
+const N8N_BASE = "http://175.45.194.202:5678/webhook";            // n8n Webhook API
+
 
 function App() {
   const [logs, setLogs] = useState([]);
@@ -19,7 +21,7 @@ function App() {
   useEffect(() => {
     async function initialLoad() {
       try {
-        const res = await fetch(`${BACKEND_BASE}/api/logs`);
+        const res = await fetch(`${N8N_BASE}/api/logs`);
         const data = await res.json();
         const logsArray = Array.isArray(data) ? data : [];
         setLogs(logsArray);
@@ -38,7 +40,7 @@ function App() {
     initialLoad();
 
     // 🔹 SSE (Server-Sent Events) 연결
-    const eventSource = new EventSource(`${BACKEND_BASE}/events`);
+    const eventSource = new EventSource(`${NODE_BACKEND_BASE}/events`);
 
     eventSource.onmessage = (event) => {
       try {
