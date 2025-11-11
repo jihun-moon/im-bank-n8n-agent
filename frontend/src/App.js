@@ -2,9 +2,10 @@
 import React, { useEffect, useState } from "react";
 import "./App.css";
 
-const NODE_BACKEND_BASE = "http://YOUR_SERVER_IP:3001";           // SSE, summary 등
-const N8N_BASE = "http://YOUR_SERVER_IP:5678/webhook";            // n8n Webhook API
-
+// 🔗 백엔드 / n8n 엔드포인트
+const NODE_BACKEND_BASE = "http://YOUR_SERVER_IP:3001"; // SSE, summary 등
+const N8N_WEBHOOK_ID = "c414a7fc-9924-4f90-b7a5-99998989e80b"; // API - Get Logs / Update Log 공통
+const N8N_BASE = `http://YOUR_SERVER_IP:5678/webhook/${N8N_WEBHOOK_ID}`; // n8n Webhook API
 
 function App() {
   const [logs, setLogs] = useState([]);
@@ -21,6 +22,7 @@ function App() {
   useEffect(() => {
     async function initialLoad() {
       try {
+        // n8n "API - Get Logs" Webhook
         const res = await fetch(`${N8N_BASE}/api/logs`);
         const data = await res.json();
         const logsArray = Array.isArray(data) ? data : [];
@@ -37,6 +39,7 @@ function App() {
         setLoading(false);
       }
     }
+
     initialLoad();
 
     // 🔹 SSE (Server-Sent Events) 연결
@@ -53,13 +56,18 @@ function App() {
 
           // 새 로그 하이라이트 효과
           document.body.classList.add("highlight-glow");
-          setTimeout(() => document.body.classList.remove("highlight-glow"), 500);
+          setTimeout(
+            () => document.body.classList.remove("highlight-glow"),
+            500
+          );
 
           return newData;
         });
+
         setLastFetchAt(new Date().toISOString());
-        if (newData.length > 0)
+        if (newData.length > 0) {
           setLatestLogTime(newData[newData.length - 1].timestamp);
+        }
       } catch (err) {
         console.error("SSE 데이터 처리 실패:", err);
       }
@@ -83,15 +91,24 @@ function App() {
   const learned = logs.filter((l) => l.ai_learn_completed).length;
   const piiCases = logs.filter((l) => l.pii_regex_found).length;
 
-  const exfilCount = logs.filter((l) => l.incident_category === "exfiltration").length;
-  const credCount = logs.filter((l) => l.incident_category === "credential_abuse").length;
-  const misconfCount = logs.filter((l) => l.incident_category === "misconfiguration").length;
+  const exfilCount = logs.filter(
+    (l) => l.incident_category === "exfiltration"
+  ).length;
+  const credCount = logs.filter(
+    (l) => l.incident_category === "credential_abuse"
+  ).length;
+  const misconfCount = logs.filter(
+    (l) => l.incident_category === "misconfiguration"
+  ).length;
 
   // ---------- 중복 제거 ----------
   const dedupedLogs = (() => {
     const seen = new Set();
     return logs.filter((log) => {
-      const key = log.id || `${log.log_detail || log.Log_Detail || ""}::${log.timestamp || ""}`;
+      const key =
+        log.id ||
+        log.logId ||
+        `${log.log_detail || log.Log_Detail || ""}::${log.timestamp || ""}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -101,7 +118,10 @@ function App() {
   // ---------- 필터 ----------
   const filteredLogs = dedupedLogs.filter((log) => {
     if (selectedRisk !== "ALL" && log.risk !== selectedRisk) return false;
-    if (selectedCategory !== "ALL" && log.incident_category !== selectedCategory)
+    if (
+      selectedCategory !== "ALL" &&
+      log.incident_category !== selectedCategory
+    )
       return false;
     return true;
   });
@@ -124,9 +144,10 @@ function App() {
       : "badge badge-default";
 
   const renderLearnProgress = (l) => {
-    let pct = 0,
-      label = "일반 로그",
-      bar = "progress-bar";
+    let pct = 0;
+    let label = "일반 로그";
+    let bar = "progress-bar";
+
     if (l.ai_learn_completed) {
       pct = 100;
       label = "학습 완료";
@@ -136,11 +157,15 @@ function App() {
       label = "학습 후보";
       bar += " progress-bar-active";
     }
+
     return (
       <div className="learn-progress">
         <span className={statusBadgeClass(l)}>{label}</span>
         <div className="progress-track">
-          <div className={bar} style={{ width: `${pct}%`, transition: "width 0.5s ease" }} />
+          <div
+            className={bar}
+            style={{ width: `${pct}%`, transition: "width 0.5s ease" }}
+          />
         </div>
       </div>
     );
@@ -154,8 +179,11 @@ function App() {
       <header className="app-header">
         <h1>AI 기반 개인정보 유출 탐지 및 자동 학습 파이프라인</h1>
         <p className="app-subtitle">
-          실시간 로그 수집부터 정규식 탐지, 위험도 분석, 학습 큐 관리, 학습 완료까지 전 과정 자동화합니다.<br />
-          고위험·비PII 로그만 선별 학습하여 보안 인시던트 대응 AI를 지속적으로 진화시킵니다.
+          실시간 로그 수집부터 정규식 탐지, 위험도 분석, 학습 큐 관리, 학습 완료까지
+          전 과정 자동화합니다.
+          <br />
+          고위험·비PII 로그만 선별 학습하여 보안 인시던트 대응 AI를 지속적으로
+          진화시킵니다.
         </p>
       </header>
 
@@ -171,7 +199,9 @@ function App() {
         <div className="sim-right">
           <div className="sim-meta-line">
             <span className="sim-meta-label">최근 로그 발생</span>
-            <span className="sim-meta-value">{formatTime(latestLogTime)}</span>
+            <span className="sim-meta-value">
+              {formatTime(latestLogTime)}
+            </span>
           </div>
           <div className="sim-meta-line">
             <span className="sim-meta-label">대시보드 갱신</span>
@@ -182,14 +212,38 @@ function App() {
 
       {/* 상단 통계 */}
       <section className="stats-section">
-        <div className="stat-card"><div className="stat-label">전체 로그</div><div className="stat-value">{total}</div></div>
-        <div className="stat-card"><div className="stat-label">고위험(High)</div><div className="stat-value">{highRisk}</div></div>
-        <div className="stat-card"><div className="stat-label">학습 큐</div><div className="stat-value">{learnQueue}</div></div>
-        <div className="stat-card"><div className="stat-label">학습 완료</div><div className="stat-value">{learned}</div></div>
-        <div className="stat-card stat-card-pii"><div className="stat-label">민감 PII 탐지</div><div className="stat-value">{piiCases}</div></div>
-        <div className="stat-card"><div className="stat-label">데이터 유출</div><div className="stat-value">{exfilCount}</div></div>
-        <div className="stat-card"><div className="stat-label">계정 악용</div><div className="stat-value">{credCount}</div></div>
-        <div className="stat-card"><div className="stat-label">설정 오류</div><div className="stat-value">{misconfCount}</div></div>
+        <div className="stat-card">
+          <div className="stat-label">전체 로그</div>
+          <div className="stat-value">{total}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">고위험(High)</div>
+          <div className="stat-value">{highRisk}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">학습 큐</div>
+          <div className="stat-value">{learnQueue}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">학습 완료</div>
+          <div className="stat-value">{learned}</div>
+        </div>
+        <div className="stat-card stat-card-pii">
+          <div className="stat-label">민감 PII 탐지</div>
+          <div className="stat-value">{piiCases}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">데이터 유출</div>
+          <div className="stat-value">{exfilCount}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">계정 악용</div>
+          <div className="stat-value">{credCount}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">설정 오류</div>
+          <div className="stat-value">{misconfCount}</div>
+        </div>
       </section>
 
       {/* 필터 */}
@@ -218,7 +272,9 @@ function App() {
           ].map(([val, label]) => (
             <button
               key={val}
-              className={selectedCategory === val ? "filter-btn active" : "filter-btn"}
+              className={
+                selectedCategory === val ? "filter-btn active" : "filter-btn"
+              }
               onClick={() => setSelectedCategory(val)}
             >
               {label}
@@ -257,58 +313,97 @@ function App() {
               <tbody>
                 {[...filteredLogs]
                   // 1️⃣ timestamp 기준으로 최신순 정렬 (가장 최근 로그가 위로)
-                  .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                  .sort(
+                    (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
+                  )
                   // 2️⃣ 너무 오래된 건 잘라서 최대 200개까지만 표시
                   .slice(0, 200)
-                .map((log) => (
-                  <React.Fragment key={log.id || log.timestamp}>
-                    <tr
-                      className={openRowId === log.id ? "row-main row-open" : "row-main"}
-                      onClick={() => toggleRow(log.id)}
-                    >
-                      <td><span className={riskBadgeClass(log.risk)}>{log.risk || "-"}</span></td>
-                      <td>{log.incident_category || "-"}</td>
-                      <td>{renderLearnProgress(log)}</td>
-                      <td className="col-summary">{log.summary || log.detail || "-"}</td>
-                      <td><span className="badge badge-source">{log.source || "UNKNOWN"}</span></td>
-                      <td>{formatTime(log.timestamp)}</td>
-                      <td className="toggle-cell">{openRowId === log.id ? "▲" : "▼"}</td>
-                    </tr>
-                    {openRowId === log.id && (
-                      <tr className="row-detail">
-                        <td colSpan={7}>
-                          <div className="detail-box">
-                            <div className="detail-row">
-                              <span className="detail-label">PII 탐지 요약</span>
-                              <span className="detail-value">
-                                {log.pii_regex_summary ||
-                                  (log.pii_regex_found ? "민감 PII 포함" : "민감 PII 미탐지")}
-                              </span>
-                            </div>
-                            <div className="detail-row">
-                              <span className="detail-label">위험도 판단 이유</span>
-                              <span className="detail-value">
-                                {log.risk_reason_l2 || log.risk_reason_l1 || log.detail || "-"}
-                              </span>
-                            </div>
-                            <div className="detail-row">
-                              <span className="detail-label">추천 대응</span>
-                              <span className="detail-value">
-                                {log.recommendation_l2 || log.recommendation || "-"}
-                              </span>
-                            </div>
-                            <div className="detail-row detail-log-row">
-                              <span className="detail-label">로그 내용</span>
-                              <pre className="detail-log">
-                                {log.log_detail || log.redactedLog || log.Log_Detail || "(로그 없음)"}
-                              </pre>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                ))}
+                  .map((log) => {
+                    const rowId = log.id || log.logId || log.timestamp;
+                    return (
+                      <React.Fragment key={rowId}>
+                        <tr
+                          className={
+                            openRowId === rowId
+                              ? "row-main row-open"
+                              : "row-main"
+                          }
+                          onClick={() => toggleRow(rowId)}
+                        >
+                          <td>
+                            <span className={riskBadgeClass(log.risk)}>
+                              {log.risk || "-"}
+                            </span>
+                          </td>
+                          <td>{log.incident_category || "-"}</td>
+                          <td>{renderLearnProgress(log)}</td>
+                          <td className="col-summary">
+                            {log.summary || log.detail || "-"}
+                          </td>
+                          <td>
+                            <span className="badge badge-source">
+                              {log.source || "UNKNOWN"}
+                            </span>
+                          </td>
+                          <td>{formatTime(log.timestamp)}</td>
+                          <td className="toggle-cell">
+                            {openRowId === rowId ? "▲" : "▼"}
+                          </td>
+                        </tr>
+                        {openRowId === rowId && (
+                          <tr className="row-detail">
+                            <td colSpan={7}>
+                              <div className="detail-box">
+                                <div className="detail-row">
+                                  <span className="detail-label">
+                                    PII 탐지 요약
+                                  </span>
+                                  <span className="detail-value">
+                                    {log.pii_regex_summary ||
+                                      (log.pii_regex_found
+                                        ? "민감 PII 포함"
+                                        : "민감 PII 미탐지")}
+                                  </span>
+                                </div>
+                                <div className="detail-row">
+                                  <span className="detail-label">
+                                    위험도 판단 이유
+                                  </span>
+                                  <span className="detail-value">
+                                    {log.risk_reason_l2 ||
+                                      log.risk_reason_l1 ||
+                                      log.detail ||
+                                      "-"}
+                                  </span>
+                                </div>
+                                <div className="detail-row">
+                                  <span className="detail-label">
+                                    추천 대응
+                                  </span>
+                                  <span className="detail-value">
+                                    {log.recommendation_l2 ||
+                                      log.recommendation ||
+                                      "-"}
+                                  </span>
+                                </div>
+                                <div className="detail-row detail-log-row">
+                                  <span className="detail-label">
+                                    로그 내용
+                                  </span>
+                                  <pre className="detail-log">
+                                    {log.log_detail ||
+                                      log.redactedLog ||
+                                      log.Log_Detail ||
+                                      "(로그 없음)"}
+                                  </pre>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
               </tbody>
             </table>
           </div>
