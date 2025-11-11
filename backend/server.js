@@ -22,7 +22,9 @@ const DATA_DIR = path.join(__dirname, "data");
 const LOG_FILE = path.join(DATA_DIR, "logs.json");
 const KB_FILE = path.join(DATA_DIR, "kb.json");
 
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
 
 // ----------------------------------------------------------
 // JSON 읽기/쓰기 유틸
@@ -94,29 +96,35 @@ app.get("/", (req, res) => {
 });
 
 // ==========================================================
-// 🚀 [1] n8n → 로그 저장 (신규/갱신)  ★ API는 n8n, 실시간은 여기서 담당
+// 🚀 [1] n8n → 로그 저장 (신규/갱신)
+//     - n8n Data Table → HTTP Request(POST /api/logs) 에서 호출
 // ==========================================================
 app.post("/api/logs", (req, res) => {
   const log = req.body;
+
   if (!log || !log.id) {
     return res.status(400).json({ ok: false, error: "id가 없는 로그입니다." });
   }
 
   const idx = logIndex.get(log.id);
   if (idx !== undefined) {
+    // 기존 로그 갱신
     logs[idx] = log;
   } else {
+    // 새 로그 추가
     logs.push(log);
     logIndex.set(log.id, logs.length - 1);
   }
 
   saveJson(LOG_FILE, logs);
+
   console.log(
     `[NEW LOG] ${log.id} | ${log.risk || "?"} | ${log.summary || ""}`
   );
 
-  // SSE 전송
+  // SSE 구독 중인 모든 클라이언트에 최신 로그 배열 전송
   broadcastLogs();
+
   return res.json({ ok: true });
 });
 
@@ -131,6 +139,7 @@ app.post("/api/logs", (req, res) => {
 
 // ==========================================================
 // 🧠 [3] Security KB 학습 데이터 추가
+//     - n8n "HTTP - Security KB 학습 데이터 추가" 노드가 호출
 // ==========================================================
 app.post("/security-kb", (req, res) => {
   const item = req.body;
@@ -152,11 +161,13 @@ app.post("/security-kb", (req, res) => {
       kbItem.meta?.log_id || "N/A"
     }`
   );
+
   res.json({ ok: true });
 });
 
 // ==========================================================
 // 📚 [3-1] KB 예시 조회
+//     - n8n에서 유사 학습 사례 조회용으로 사용
 // ==========================================================
 app.get("/security-kb/examples", (req, res) => {
   const { category, risk, limit = 3 } = req.query;
@@ -170,7 +181,9 @@ app.get("/security-kb/examples", (req, res) => {
     );
   }
 
-  if (risk) filtered = filtered.filter((k) => k.risk === risk);
+  if (risk) {
+    filtered = filtered.filter((k) => k.risk === risk);
+  }
 
   filtered = filtered.sort(
     (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
@@ -181,7 +194,7 @@ app.get("/security-kb/examples", (req, res) => {
 
 // ==========================================================
 // 📊 [4] 대시보드 요약 / 디버그
-//     (로그 원본은 n8n에도 있지만, SSE용 메모리 캐시 기반으로 계산)
+//     (로그 원본은 n8n에도 있지만, SSE용 메모리 캐시 기반 계산)
 // ==========================================================
 app.get("/api/summary", (req, res) => {
   const total = logs.length;
@@ -220,7 +233,5 @@ app.get("/debug/kb", (req, res) => {
 // 🚦 서버 시작
 // ==========================================================
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(
-    `✅ SecureFlow backend listening on http://0.0.0.0:${PORT}`
-  );
+  console.log(`✅ SecureFlow backend listening on http://0.0.0.0:${PORT}`);
 });
