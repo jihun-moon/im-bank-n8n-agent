@@ -119,20 +119,21 @@ im-bank-n8n-agent/
 
 ```mermaid
 flowchart TD
-    A[Webhook 수집] --> B[전처리 · 스키마 정규화]
-    B --> C[PII 탐지 및 마스킹]
-    C --> D[위험도 분류 (Solar Pro 2)]
-    D --> E[백엔드 저장 / SSE 스트림]
+    A["Webhook 수집"] --> B["전처리 · 스키마 정규화"]
+    B --> C["PII 탐지 및 마스킹"]
+    C --> D["위험도 분류 (Solar Pro 2)"]
+    D --> E["백엔드 저장 / SSE 스트림"]
     
-    D --> F{학습 대상?}
-    F -->|YES| G[학습 텍스트 생성]
-    G --> H[Security KB 저장]
-    H --> I[상태 업데이트 (PUT /api/logs/:id)]
+    D --> F{"학습 대상?"}
+    F -->|YES| G["학습 텍스트 생성"]
+    G --> H["Security KB 저장"]
+    H --> I["상태 업데이트 (PUT /api/logs/:id)"]
 
-    D --> J{High Risk?}
-    J -->|YES| K[Slack/Email 경보]
+    D --> J{"High Risk?"}
+    J -->|YES| K["Slack/Email 경보"]
 
-    E --> L[React Dashboard (실시간)]
+    E --> L["React Dashboard (실시간)"]
+
 ```
 
 ---
