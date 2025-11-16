@@ -1,11 +1,9 @@
 // src/App.js
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import "./App.css";
 
-// 🔗 백엔드 / n8n 엔드포인트
-const NODE_BACKEND_BASE = "http://175.45.194.202:3001"; // SSE, summary 등
-const N8N_WEBHOOK_ID = "c414a7fc-9924-4f90-b7a5-99998989e80b"; // API - Get Logs / Update Log 공통
-const N8N_BASE = `http://175.45.194.202:5678/webhook/${N8N_WEBHOOK_ID}`; // n8n Webhook API
+// 🔗 백엔드 엔드포인트 (Node server.js)
+const NODE_BACKEND_BASE = "http://211.188.58.62:3001"; // SSE, /api/logs 등
 
 function App() {
   const [logs, setLogs] = useState([]);
@@ -18,14 +16,20 @@ function App() {
   const [lastFetchAt, setLastFetchAt] = useState(null);
   const [latestLogTime, setLatestLogTime] = useState(null);
 
+  // ✅ SSE가 "최초 연결인지 / 재연결인지" 구분하기 위한 ref
+  const firstConnectRef = useRef(true);
+
   // 🔹 초기 1회 fetch + SSE 연결
   useEffect(() => {
-    async function initialLoad() {
+    let eventSource = null;
+    let retryTimeout = null;
+
+    async function fetchLogs() {
       try {
-        // n8n "API - Get Logs" Webhook
-        const res = await fetch(`${N8N_BASE}/api/logs`);
+        const res = await fetch(`${NODE_BACKEND_BASE}/api/logs`);
         const data = await res.json();
         const logsArray = Array.isArray(data) ? data : [];
+
         setLogs(logsArray);
         setLatestLogTime(
           logsArray.length > 0
@@ -34,51 +38,126 @@ function App() {
         );
         setLastFetchAt(new Date().toISOString());
       } catch (err) {
-        console.error("초기 로그 로드 실패:", err);
-      } finally {
-        setLoading(false);
+        console.error("로그 로드 실패:", err);
       }
     }
 
-    initialLoad();
+    async function initialLoad() {
+      setLoading(true);
+      await fetchLogs(); // 🔸 페이지 첫 로드 시 한 번만 전체 조회
+      setLoading(false);
+    }
 
-    // 🔹 SSE (Server-Sent Events) 연결
-    const eventSource = new EventSource(`${NODE_BACKEND_BASE}/events`);
-
-    eventSource.onmessage = (event) => {
-      try {
-        const newData = JSON.parse(event.data);
-        if (!Array.isArray(newData)) return;
-
-        setLogs((prev) => {
-          // 완전히 동일하면 무시
-          if (JSON.stringify(prev) === JSON.stringify(newData)) return prev;
-
-          // 새 로그 하이라이트 효과
-          document.body.classList.add("highlight-glow");
-          setTimeout(
-            () => document.body.classList.remove("highlight-glow"),
-            500
-          );
-
-          return newData;
-        });
-
-        setLastFetchAt(new Date().toISOString());
-        if (newData.length > 0) {
-          setLatestLogTime(newData[newData.length - 1].timestamp);
-        }
-      } catch (err) {
-        console.error("SSE 데이터 처리 실패:", err);
+    function connectSSE() {
+      if (eventSource) {
+        eventSource.close();
       }
-    };
 
-    eventSource.onerror = (e) => {
-      console.warn("SSE 연결 끊김:", e);
-    };
+      const es = new EventSource(`${NODE_BACKEND_BASE}/events`);
+      eventSource = es;
+
+      // ✅ 재연결되더라도 /api/logs로 전체 초기화는 "최초 1번만"
+      es.onopen = () => {
+        console.log("SSE 연결/재연결 완료");
+        if (firstConnectRef.current) {
+          firstConnectRef.current = false;
+          console.log("최초 연결 → /api/logs 로 초기 스냅샷 동기화");
+          fetchLogs();
+        } else {
+          console.log("재연결 → 기존 로그 유지 (대시보드 강제 초기화 안 함)");
+        }
+      };
+
+      es.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+
+          // 1) 서버가 "전체 배열"을 던져주는 형태 (현재 구조)
+          if (Array.isArray(payload)) {
+            setLogs((prev) => {
+              // 내용이 완전히 같으면 굳이 다시 그리지 않기
+              if (JSON.stringify(prev) === JSON.stringify(payload)) return prev;
+
+              document.body.classList.add("highlight-glow");
+              setTimeout(
+                () => document.body.classList.remove("highlight-glow"),
+                500
+              );
+
+              return payload;
+            });
+
+            setLastFetchAt(new Date().toISOString());
+            if (payload.length > 0) {
+              setLatestLogTime(
+                payload[payload.length - 1].timestamp || null
+              );
+            }
+            return;
+          }
+
+          // 2) { type: "INIT", logs: [...] } 형식 지원 (나중에 서버 바꿔도 됨)
+          if (payload && payload.type === "INIT" && Array.isArray(payload.logs)) {
+            setLogs(payload.logs);
+            setLastFetchAt(new Date().toISOString());
+            if (payload.logs.length > 0) {
+              setLatestLogTime(
+                payload.logs[payload.logs.length - 1].timestamp || null
+              );
+            }
+            return;
+          }
+
+          // 3) { type: "NEW_LOG", log: {...} } 형식 지원
+          if (payload && payload.type === "NEW_LOG" && payload.log) {
+            setLogs((prev) => {
+              const merged = [payload.log, ...prev];
+              const seen = new Set();
+              // log_id / id / timestamp+본문 기준으로 중복 제거
+              const deduped = merged.filter((l) => {
+                const key =
+                  l.id ||
+                  l.log_id ||
+                  l.logId ||
+                  `${l.log_detail || l.Log_Detail || ""}::${
+                    l.timestamp || ""
+                  }`;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+              });
+              return deduped.slice(0, 500); // 최대 500개만 유지
+            });
+
+            setLastFetchAt(new Date().toISOString());
+            if (payload.log.timestamp) {
+              setLatestLogTime(payload.log.timestamp);
+            }
+            return;
+          }
+
+          // 그 외 heartbeat 등은 무시
+        } catch (err) {
+          // heartbeat 같은 건 여기서 에러 안 나게 조용히 무시
+          // console.error("SSE 데이터 처리 실패:", err);
+        }
+      };
+
+      es.onerror = (e) => {
+        console.warn("SSE 연결 오류, 3초 후 재연결 시도:", e);
+        es.close();
+        retryTimeout = setTimeout(() => {
+          connectSSE();
+        }, 3000);
+      };
+    }
+
+    initialLoad();
+    connectSSE();
 
     return () => {
-      eventSource.close();
+      if (eventSource) eventSource.close();
+      if (retryTimeout) clearTimeout(retryTimeout);
     };
   }, []);
 
@@ -108,6 +187,7 @@ function App() {
       const key =
         log.id ||
         log.logId ||
+        log.log_id ||
         `${log.log_detail || log.Log_Detail || ""}::${log.timestamp || ""}`;
       if (seen.has(key)) return false;
       seen.add(key);
@@ -312,14 +392,14 @@ function App() {
               </thead>
               <tbody>
                 {[...filteredLogs]
-                  // 1️⃣ timestamp 기준으로 최신순 정렬 (가장 최근 로그가 위로)
-                  .sort(
-                    (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
-                  )
-                  // 2️⃣ 너무 오래된 건 잘라서 최대 200개까지만 표시
+                  .sort((a, b) => {
+                    const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+                    const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+                    return tb - ta;
+                  })
                   .slice(0, 200)
                   .map((log) => {
-                    const rowId = log.id || log.logId || log.timestamp;
+                    const rowId = log.id || log.logId || log.log_id || log.timestamp;
                     return (
                       <React.Fragment key={rowId}>
                         <tr

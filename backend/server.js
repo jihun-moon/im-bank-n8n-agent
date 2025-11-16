@@ -1,9 +1,10 @@
 // ==========================================================
-// 🧠 SecureFlow / im-bank-n8n-agent Backend Server
+// 🧠 SecureFlow / im-bank-n8n-agent Backend Server (완성본)
 // ==========================================================
 // - n8n → 로그 분석 결과 수신 (POST /api/logs)
 // - React Dashboard → 실시간 로그 표시 (SSE /events)
-// - Security KB 관리 및 요약(/api/summary)
+// - Security KB 관리 및 예시 조회 (/security-kb, /api/kb)
+// - 학습 상태 반영 (PATCH /api/logs/:id/learn-complete)
 // - 💾 JSON 파일 기반 로컬 스토리지 (logs.json, kb.json)
 // ==========================================================
 
@@ -18,7 +19,7 @@ const PORT = process.env.PORT || 3001;
 // ==========================================================
 // 📁 데이터 디렉토리 설정
 // ==========================================================
-const DATA_DIR = path.join(__dirname, "data");
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const LOG_FILE = path.join(DATA_DIR, "logs.json");
 const KB_FILE = path.join(DATA_DIR, "kb.json");
 
@@ -55,9 +56,28 @@ app.use(express.json({ limit: "5mb" }));
 // ==========================================================
 // 💾 메모리 캐시 (실시간 반영)
 // ==========================================================
-let logs = loadJson(LOG_FILE, []); // [{ id, risk, ... }]
+let logs = loadJson(LOG_FILE, []); // [{ id: "LOG-...", ... }]
 let logIndex = new Map(logs.map((l, i) => [l.id, i]));
-let kbItems = loadJson(KB_FILE, []);
+
+let kbItems = loadJson(KB_FILE, []); // [{ id, risk, text, meta, ... }]
+
+// 요약 정보 계산 유틸 (대시보드 & 디버그 공용)
+function getSummary() {
+  const total = logs.length;
+  const high = logs.filter((l) => l.risk === "High").length;
+  const learnQueue = logs.filter(
+    (l) => l.ai_learn_enabled && !l.ai_learn_completed
+  ).length;
+  const learned = logs.filter((l) => l.ai_learn_completed).length;
+
+  return {
+    total,
+    high,
+    learnQueue,
+    learned,
+    kbCount: kbItems.length,
+  };
+}
 
 // ==========================================================
 // 🔥 SSE (Server-Sent Events) – 실시간 스트리밍
@@ -88,6 +108,17 @@ function broadcastLogs() {
   }
 }
 
+// 🔂 15초마다 heartbeat 전송
+setInterval(() => {
+  const payload = JSON.stringify({
+    type: "heartbeat",
+    ts: new Date().toISOString(),
+  });
+  for (const res of clients) {
+    res.write(`event: heartbeat\ndata: ${payload}\n\n`);
+  }
+}, 15000);
+
 // ==========================================================
 // 🧱 기본 라우트
 // ==========================================================
@@ -97,53 +128,161 @@ app.get("/", (req, res) => {
 
 // ==========================================================
 // 🚀 [1] n8n → 로그 저장 (신규/갱신)
-//     - n8n Data Table → HTTP Request(POST /api/logs) 에서 호출
+//     - n8n Data Table → HTTP Request(POST /api/logs)에서 호출
 // ==========================================================
 app.post("/api/logs", (req, res) => {
-  const log = req.body;
+  const log = req.body || {};
 
-  if (!log || !log.id) {
+  // n8n에서 id / log_id 둘 중 하나만 올 수도 있으니 보정
+  if (!log.id && log.log_id) {
+    log.id = log.log_id;
+  }
+
+  if (!log.id) {
     return res.status(400).json({ ok: false, error: "id가 없는 로그입니다." });
   }
 
+  // 기본 플래그 디폴트 (undefined 방지)
+  if (typeof log.ai_learn_enabled !== "boolean") {
+    log.ai_learn_enabled = false;
+  }
+  if (typeof log.ai_learn_completed !== "boolean") {
+    log.ai_learn_completed = false;
+  }
+
   const idx = logIndex.get(log.id);
+
   if (idx !== undefined) {
-    // 기존 로그 갱신
-    logs[idx] = log;
+    // 기존 로그 전체 갱신
+    logs[idx] = {
+      ...logs[idx],
+      ...log,
+      updatedAt: new Date().toISOString(),
+    };
+    console.log(
+      `[LOG UPSERT] UPDATE ${log.id} | ${log.risk || "?"} | ${
+        log.summary || ""
+      }`
+    );
   } else {
     // 새 로그 추가
-    logs.push(log);
+    logs.push({
+      ...log,
+      createdAt: new Date().toISOString(),
+    });
     logIndex.set(log.id, logs.length - 1);
+    console.log(
+      `[LOG UPSERT] INSERT ${log.id} | ${log.risk || "?"} | ${
+        log.summary || ""
+      }`
+    );
   }
 
   saveJson(LOG_FILE, logs);
 
-  console.log(
-    `[NEW LOG] ${log.id} | ${log.risk || "?"} | ${log.summary || ""}`
-  );
-
   // SSE 구독 중인 모든 클라이언트에 최신 로그 배열 전송
   broadcastLogs();
 
-  return res.json({ ok: true });
+  return res.json({ ok: true, summary: getSummary() });
 });
 
 // ==========================================================
-// 📜 [2] 프론트 → 로그 전체 조회 / 상태 업데이트
+// 📜 [2] 로그 조회 / 일반 상태 업데이트 (프론트 + n8n 공용)
 // ==========================================================
-// 👉 이 부분은 이제 n8n Webhook에서 처리하므로 서버에서는 제거.
-//    (React는 /webhook/api/logs, /webhook/api/logs/:id 로 요청)
-// ----------------------------------------------------------
-// app.get("/api/logs", (req, res) => { ... });
-// app.put("/api/logs/:id", (req, res) => { ... });
+app.get("/api/logs", (req, res) => {
+  res.json(logs);
+});
+
+app.get("/api/logs/:id", (req, res) => {
+  const { id } = req.params;
+  const idx = logIndex.get(id);
+
+  if (idx === undefined) {
+    return res.status(404).json({ ok: false, error: `Log ${id} not found` });
+  }
+
+  res.json(logs[idx]);
+});
+
+app.put("/api/logs/:id", (req, res) => {
+  const { id } = req.params;
+  const update = req.body || {};
+
+  const idx = logIndex.get(id);
+  if (idx === undefined) {
+    return res.status(404).json({ ok: false, error: `Log ${id} not found` });
+  }
+
+  logs[idx] = {
+    ...logs[idx],
+    ...update,
+    updatedAt: new Date().toISOString(),
+  };
+
+  saveJson(LOG_FILE, logs);
+  broadcastLogs();
+
+  console.log(`[LOG UPDATE] ${id} ←`, update);
+
+  res.json({ ok: true, log: logs[idx], summary: getSummary() });
+});
+
+// ==========================================================
+// 🎓 [2-1] 학습 상태 전용 업데이트 (학습 워커용)
+//     - PATCH /api/logs/:id/learn-complete
+// ==========================================================
+app.patch("/api/logs/:id/learn-complete", (req, res) => {
+  const { id } = req.params;
+  const body = req.body || {};
+
+  // URL과 body 중 뭘 보내든, 결국 URL 기준으로 맞춰줌
+  const logId = id || body.id;
+
+  const idx = logIndex.get(logId);
+  if (idx === undefined) {
+    return res
+      .status(404)
+      .json({ ok: false, error: `Log ${logId} not found (learn-complete)` });
+  }
+
+  const prev = logs[idx];
+
+  const patch = {
+    ai_learn_enabled:
+      typeof body.ai_learn_enabled === "boolean"
+        ? body.ai_learn_enabled
+        : prev.ai_learn_enabled,
+    ai_learn_completed:
+      typeof body.ai_learn_completed === "boolean"
+        ? body.ai_learn_completed
+        : true,
+    status: body.status || prev.status || "학습 완료",
+    final_risk_for_learning:
+      body.final_risk_for_learning || prev.final_risk_for_learning,
+    updatedAt: new Date().toISOString(),
+  };
+
+  logs[idx] = {
+    ...prev,
+    ...patch,
+  };
+
+  saveJson(LOG_FILE, logs);
+  broadcastLogs();
+
+  console.log(
+    `[LEARN COMPLETE] ${logId} : enabled=${logs[idx].ai_learn_enabled}, completed=${logs[idx].ai_learn_completed}`
+  );
+
+  res.json({ ok: true, log: logs[idx], summary: getSummary() });
+});
 
 // ==========================================================
 // 🧠 [3] Security KB 학습 데이터 추가
-//     - n8n "HTTP - Security KB 학습 데이터 추가" 노드가 호출
 // ==========================================================
-app.post("/security-kb", (req, res) => {
-  const item = req.body;
-  if (!item || !item.text) {
+function handleAddKb(req, res) {
+  const item = req.body || {};
+  if (!item.text) {
     return res.status(400).json({ ok: false, error: "text가 없습니다." });
   }
 
@@ -162,14 +301,16 @@ app.post("/security-kb", (req, res) => {
     }`
   );
 
-  res.json({ ok: true });
-});
+  res.json({ ok: true, item: kbItem });
+}
+
+app.post("/security-kb", handleAddKb);
+app.post("/api/kb", handleAddKb);
 
 // ==========================================================
-// 📚 [3-1] KB 예시 조회
-//     - n8n에서 유사 학습 사례 조회용으로 사용
+// 📚 [3-1] KB 예시 조회 (유사 학습 사례)
 // ==========================================================
-app.get("/security-kb/examples", (req, res) => {
+function handleGetKbExamples(req, res) {
   const { category, risk, limit = 3 } = req.query;
   let filtered = kbItems;
 
@@ -190,31 +331,25 @@ app.get("/security-kb/examples", (req, res) => {
   );
 
   res.json(filtered.slice(0, Number(limit) || 3));
-});
+}
+
+app.get("/security-kb/examples", handleGetKbExamples);
+app.get("/api/kb/examples", handleGetKbExamples);
 
 // ==========================================================
 // 📊 [4] 대시보드 요약 / 디버그
-//     (로그 원본은 n8n에도 있지만, SSE용 메모리 캐시 기반 계산)
 // ==========================================================
 app.get("/api/summary", (req, res) => {
-  const total = logs.length;
-  const high = logs.filter((l) => l.risk === "High").length;
-  const learnQueue = logs.filter(
-    (l) => l.ai_learn_enabled && !l.ai_learn_completed
-  ).length;
-  const learned = logs.filter((l) => l.ai_learn_completed).length;
-
-  res.json({
-    total,
-    high,
-    learnQueue,
-    learned,
-    kbCount: kbItems.length,
-  });
+  res.json(getSummary());
 });
 
+// 전체 로그 / KB 간단 디버그
 app.get("/debug/logs", (req, res) => {
-  res.json({ count: logs.length, ids: logs.map((l) => l.id) });
+  res.json({
+    summary: getSummary(),
+    count: logs.length,
+    ids: logs.map((l) => l.id),
+  });
 });
 
 app.get("/debug/kb", (req, res) => {
@@ -227,6 +362,34 @@ app.get("/debug/kb", (req, res) => {
       log_id: k.meta?.log_id,
     })),
   });
+});
+
+// 🔍 학습 후보(Queue) 상세 확인용
+app.get("/debug/learn-queue", (req, res) => {
+  const queue = logs.filter(
+    (l) => l.ai_learn_enabled && !l.ai_learn_completed
+  );
+  res.json({
+    count: queue.length,
+    items: queue.map((l) => ({
+      id: l.id,
+      log_id: l.log_id,
+      risk: l.risk,
+      status: l.status,
+      ai_learn_enabled: l.ai_learn_enabled,
+      ai_learn_completed: l.ai_learn_completed,
+    })),
+  });
+});
+
+// 개별 로그 디버그
+app.get("/debug/logs/:id", (req, res) => {
+  const { id } = req.params;
+  const idx = logIndex.get(id);
+  if (idx === undefined) {
+    return res.status(404).json({ ok: false, error: `Log ${id} not found` });
+  }
+  res.json(logs[idx]);
 });
 
 // ==========================================================
