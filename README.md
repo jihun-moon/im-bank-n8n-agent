@@ -1,127 +1,140 @@
-# 🧠 AIM: AI + IM  
-## _Aim the Security of Finance_
+# 🧠 AIM SECURITYFLOW
+
+## *Aim the Security of Finance*
+
+### **AI 기반 금융 보안 로그 자율 분석·학습 파이프라인**
 
 ---
 
 # 🚀 SecureFlow — AI 자율 학습 보안 파이프라인
 
-**AI 기반 개인정보 유출 탐지 및 자동 대응 시스템 (AIM SecureFlow Prototype)**  
-2025 AI Agent 해커톤 출품작  
+**(AIM: AI + IM)**
+**2025 AI Agent 해커톤 공식 출품작**
 
-로우코드 워크플로 툴 **n8n**,  
-AI 모델 **Upstage Solar Pro 2 / Gemini 1.5**,  
-Express + React 기반 백엔드·대시보드로 구성된  
-**PII 유출 자동 탐지 / 학습 / 조치형 보안 AI 파이프라인**입니다.
+SecureFlow는 금융·기업 환경에서 발생하는 보안 로그를
+**AI가 스스로 수집 → 분석 → 판단 → 학습 → 대응하는**
+**완전 자동화 보안 파이프라인**입니다.
 
 ---
 
-## 📦 프로젝트 구조
+# 🧩 전체 아키텍처 (요약)
+
+```
+외부 시스템 → n8n → Upstage Solar / Gemini → Express Backend  
+→ Security KB(Vector Store) → React Dashboard (실시간)
+```
+
+✔ **PII 자동 탐지 및 제거**
+✔ **AI 기반 위험도 분석**
+✔ **학습 자동화로 패턴 정교화**
+✔ **React 대시보드 실시간 스트리밍 (SSE)**
+✔ **금융 보안 시나리오 기반 대응(고위험 Slack 알림)**
+✔ **백엔드 + n8n + LLM 조합 AI Agent 구조**
+
+---
+
+# 📦 프로젝트 구조
 
 ```bash
 im-bank-n8n-agent/
-├── backend/                # Express 서버 (API, SSE, KB, 로그 저장)
-│   ├── server.js           # 핵심 서버 로직
-│   ├── data/
-│   │   ├── logs.json       # 보안 로그 저장
-│   │   └── kb.json         # 학습용 지식베이스
-│   └── ...
+├── backend/                # Express 서버(API, SSE, 로그/KB 저장)
+│   ├── server.js           
+│   └── data/
+│       ├── logs.json       # 실시간 보안 로그 저장
+│       └── kb.json         # 학습된 보안 지식베이스
 │
-├── frontend/               # React 실시간 대시보드
-│   ├── src/App.js          # SSE 기반 실시간 UI 로직
-│   ├── src/App.css         # UI / 카드 / 로그 스타일
-│   └── ...
+├── frontend/               # React 실시간 보안 대시보드
+│   ├── src/App.js
+│   ├── src/App.css
 │
-├── n8n-workflows/          # PII 탐지~학습 자동화 워크플로 (.json)
+├── n8n-workflows/          # PII 탐지~AI 분석~학습 자동화 전체 워크플로
 ├── README.md
 └── .github/workflows/ci.yml
 ```
 
 ---
 
-## ⚙️ 핵심 기능
+# ⚙️ 주요 기능 (핵심 요약)
 
-| 기능 | 설명 |
-|------|------|
-| 🔍 **PII 탐지 및 마스킹** | 정규식 기반으로 이메일·전화·주민번호·카드번호 자동 탐지 후 `[EMAIL]` 등으로 치환 |
-| 🧠 **AI 위험도 판단 (Upstage Solar)** | 로그 내용 분석 후 High / Medium / Safe 등급 분류 |
-| 🔄 **n8n 자동화 파이프라인** | Webhook → 분석 → 학습 → 상태 업데이트까지 전자동 수행 |
-| 🧩 **보안 지식베이스 (KB)** | 과거 인시던트 사례 저장 및 유사 패턴 검색 |
-| 📊 **React 실시간 대시보드** | SSE 기반 실시간 갱신 / 위험도 통계 / 학습 현황 시각화 |
-| ⚡ **자동 학습 및 상태 갱신** | KB 등록 성공 시 PUT `/api/logs/:id` 로 상태 자동 변경 |
-
----
-
-## 🔗 주요 엔드포인트
-
-| Method | Endpoint | 설명 |
-|--------|-----------|------|
-| `POST` | `/api/logs` | n8n → 백엔드 로그 수신 및 저장 |
-| `GET` | `/api/logs` | 전체 로그 조회 (최신순) |
-| `PUT` | `/api/logs/:id` | 학습 완료 상태 갱신 |
-| `POST` | `/security-kb` | 학습 데이터 저장 |
-| `GET` | `/security-kb/examples` | 유사 학습 사례 조회 |
-| `GET` | `/events` | SSE 실시간 로그 스트림 |
+| 기능                                         | 설명                               |
+| ------------------------------------------ | -------------------------------- |
+| 🔍 **정규식 기반 PII 탐지 + 자동 마스킹**              | 이메일·전화·주민번호·카드번호 식별 → `[MASKED]` |
+| 🧠 **AI 분석(Upstage Solar Pro 2 / Gemini)** | 위험도·카테고리·원인 생성                   |
+| 📚 **Security KB 자동 학습**                   | PII 제거된 요약 데이터만 벡터스토어에 저장        |
+| 💾 **로그 저장(Express JSON Storage)**         | logs.json / kb.json              |
+| 🔄 **완전자동 n8n Workflow Engine**            | Webhook → 분석 → 저장 → 학습 → 상태 업데이트 |
+| 📊 **React 실시간 대시보드**                      | SSE 기반 실시간 log push              |
+| 🚨 **High Risk Alert**                     | Slack / Email 자동 경보              |
+| 🧼 **백업 데이터 Sanitizer**                    | XLSX 백업 시 PII 완전 제거              |
 
 ---
 
-## 🧰 기술 스택
+# 🔗 주요 API 엔드포인트
 
-| 영역 | 사용 기술 |
-|------|------------|
-| **Backend** | Node.js (Express), JSON Storage, SSE |
-| **Frontend** | React + Tailwind, Chart.js |
-| **Automation** | n8n Workflow Engine |
-| **AI 분석** | Upstage Solar Pro 2, Gemini 1.5 |
-| **Infra** | Naver Cloud (포트 3001 / 5173), Docker |
-| **DB/스토리지** | 파일형 로그 저장소 (logs.json / kb.json) |
+| Method | Endpoint                | 설명              |
+| ------ | ----------------------- | --------------- |
+| POST   | `/api/logs`             | n8n → 새로운 로그 저장 |
+| GET    | `/api/logs`             | 모든 로그 목록 조회     |
+| PUT    | `/api/logs/:id`         | 학습 완료 상태 업데이트   |
+| POST   | `/security-kb`          | 보안 지식베이스 등록     |
+| GET    | `/security-kb/examples` | 유사 사례 조회        |
+| GET    | `/events`               | SSE 기반 실시간 스트림  |
 
 ---
 
-## 🧩 전체 파이프라인 요약
+# 🧰 기술 스택
 
-```
-[Webhook 수집]
-   ↓
-[PII 탐지 및 마스킹]
-   ↓
-[AI 위험도 평가]
-   ↓
-[결과 병합 + 백엔드 저장]
-   ↓
-[High 위험 Slack 알림]
-   ↓
-[학습 대상 자동 분기]
-   ↓
-[학습 텍스트 생성 → KB 등록]
-   ↓
-[학습 완료 상태 자동 갱신]
+| 영역             | 스택                                   |
+| -------------- | ------------------------------------ |
+| **Backend**    | Node.js (Express), SSE, JSON Storage |
+| **Workflow**   | n8n (LLM + Regex + 자동화 파이프라인)        |
+| **AI 분석**      | Solar Pro 2, Gemini 1.5 Flash        |
+| **Frontend**   | React, Tailwind, Chart.js            |
+| **Infra**      | Naver Cloud Server, Docker           |
+| **Data Store** | logs.json, kb.json                   |
+
+---
+
+# 🧩 전체 파이프라인 Diagram
+
+```mermaid
+flowchart TD
+    A[Webhook 수집] --> B[PII 탐지 및 마스킹]
+    B --> C[AI 위험도 평가]
+    C --> D[백엔드 저장]
+    D --> E{High Risk?}
+    E -->|Yes| F[Slack 경보]
+    C --> G{학습 대상?}
+    G -->|Yes| H[학습 데이터 생성]
+    H --> I[Security KB 저장]
+    I --> J[로그 상태 업데이트]
+    D --> K[Dashboard SSE 실시간 반영]
 ```
 
 ---
 
-## 🧱 ERD (Entity Relationship Diagram)
+# 🧬 ERD (보안 로그 + 학습 KB)
 
 ```mermaid
 erDiagram
     LOGS {
         string id PK
-        string risk
+        string log_detail
+        string redactedLog
         string summary
-        string detail
-        string recommendation
-        string source
-        string timestamp
-        string status
+        string risk_l1
+        string risk_l2
+        string bot_risk_final
         boolean pii_regex_found
         string[] pii_regex_types
         boolean ai_learn_enabled
         boolean ai_learn_completed
         string incident_category
+        datetime occurred_at
     }
 
-    KB_ITEMS {
+    KB {
         string id PK
-        string source
         string category
         string risk
         string text
@@ -129,66 +142,98 @@ erDiagram
         datetime createdAt
     }
 
-    LOGS ||--|{ KB_ITEMS : "학습 데이터 기반"
+    LOGS ||--|{ KB : "학습 기반"
 ```
 
 ---
 
-## 🔄 Sequence Diagram (n8n → Server → Dashboard)
+# 🔄 시퀀스 다이어그램
 
 ```mermaid
 sequenceDiagram
-    participant External as 외부 로그 소스
+    participant External as 외부 시스템
     participant n8n as n8n Workflow
-    participant Backend as Express Server
-    participant Dashboard as React Frontend
+    participant Backend as Express 서버
+    participant Dash as 대시보드
 
-    External->>n8n: POST /webhook (보안 로그)
-    n8n->>n8n: PII 탐지 / AI 위험도 판단
-    n8n->>Backend: POST /api/logs (backendPayload)
-    Backend->>Dashboard: SSE Broadcast (새 로그 실시간 반영)
+    External->>n8n: POST 보안 로그
+    n8n->>n8n: PII 탐지/마스킹, AI 분석
+    n8n->>Backend: POST /api/logs (정제 데이터 저장)
+    Backend->>Dash: SSE 브로드캐스트
 
-    alt 위험도 High
-        Backend->>Slack: 🚨 High Risk Alert
+    alt High Risk
+        Backend->>Slack: 🚨 High Risk 알림
     end
 
     alt 학습 대상
-        n8n->>Backend: POST /security-kb (학습 데이터 추가)
-        Backend->>Backend: KB 저장 (kb.json)
-        n8n->>Backend: PUT /api/logs/:id (학습 완료)
-        Backend->>Dashboard: SSE Broadcast (상태 갱신)
+        n8n->>Backend: KB 저장 요청
+        Backend->>Backend: kb.json 업데이트
+        n8n->>Backend: 학습 완료 상태 반영
+        Backend->>Dash: 상태 업데이트 SSE
     end
 ```
 
 ---
 
-## 💻 실행 방법
+# 🧼 백업 Sanitizer (12H 자동 백업)
+
+✔ 12시간마다 동작
+✔ IF 조건으로 기간별 백업
+✔ **PII 제거된 redactedLog만 XLSX로 변환**
+✔ Naver SMTP로 암호화 TLS 메일 발송
+✔ 내부 서버에도 동시에 저장 가능
+
+---
+
+# 💻 실행 방법
 
 ```bash
-# 1️⃣ 백엔드 실행
 cd backend
 npm install
 node server.js
 
-# 2️⃣ 프론트엔드 실행
 cd ../frontend
 npm install
 npm run dev
 ```
 
-대시보드 접속: [http://175.45.194.202:3000](http://175.45.194.202:300)  
-API 서버: [http://175.45.194.202:300](http://175.45.194.202:300)
+대시보드: `http://서버IP:5173`
+API: `http://서버IP:3001`
 
 ---
 
-## 👥 팀 정보
+# 🧠 심사위원 Q&A 대비 핵심
 
-| 팀명 | AIM (AI + IM) |
-|------|----------------|
-| 모토 | _Aim the Security of Finance_ |
-| 구성 | AI / Backend / n8n / Frontend 각 담당 협업 |
-| 비전 | “AI가 로그를 읽고, 판단하고, 학습한다.” |
+### ✔ “원본 로그를 학습시키나요?” → **NO**
+
+LLM 학습에는
+**PII 제거 + 요약된 정제 데이터만** 사용합니다.
+
+### ✔ “하루 수천건 들어와도 돌아가나요?”
+
+n8n 기반 비동기 워크플로 → 병렬 처리 가능
+백엔드는 JSON 스토리지지만 파일 분리 확장 쉬움.
+
+### ✔ “이 시스템의 목표는?”
+
+AI가 “스스로 보안 로그를 읽고, 판단하고, 배운다”.
+**인간 없이 자동화되는 SOC의 프로토타입**.
 
 ---
 
-© 2025 **AIM SecurityFlow Team**. All Rights Reserved.
+# 👥 팀 AIM 소개
+
+| 항목  | 내용                               |
+| --- | -------------------------------- |
+| 팀명  | AIM (AI + IM)                    |
+| 슬로건 | *Aim the Security of Finance*    |
+| 비전  | **AI 기반 금융 보안 자동화**              |
+| 역할  | AI / Backend / n8n / Frontend 통합 |
+
+---
+
+# © 2025 AIM SecurityFlow Team
+
+*“Aim the Security of Finance.”*
+
+---
