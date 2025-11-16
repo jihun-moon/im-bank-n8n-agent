@@ -130,17 +130,17 @@ im-bank-n8n-agent/
 
 ```mermaid
 flowchart TD
-    A[Webhook 수집] --> B[전처리 Code]
-    B --> C[PII 탐지]
-    C --> D[위험도 분류 (Solar 룰 기반)]
-    D --> E{학습 대상?}
-    E -->|YES| F[학습 텍스트 생성]
-    F --> G[KB 저장]
-    G --> H[로그 상태 업데이트]
-    D --> I[백엔드로 로그 전송]
-    I --> J[SSE 대시보드 반영]
-    D --> K{High Risk?}
-    K -->|YES| L[경보 이메일/Slack]
+    A[Webhook 수집] --> B[PII 탐지 및 마스킹]
+    B --> C[위험도 분류 (Solar 룰 기반)]
+    C --> D[백엔드 저장]
+    D --> E{High Risk?}
+    E -->|Yes| F[Slack/Email 경보]
+    C --> G{학습 대상?}
+    G -->|Yes| H[학습 텍스트 생성]
+    H --> I[Security KB 저장]
+    I --> J[로그 상태 업데이트]
+    D --> K[React Dashboard SSE 반영]
+
 ```
 
 ---
@@ -157,11 +157,11 @@ erDiagram
         string bot_risk_final
         string incident_category
         boolean pii_regex_found
-        string[] pii_regex_types
+        string pii_regex_types
         boolean ai_learn_enabled
         boolean ai_learn_completed
         datetime occurred_at
-        json meta
+        string meta
     }
 
     KB {
@@ -169,11 +169,11 @@ erDiagram
         string category
         string risk
         string text
-        json meta
+        string meta
         datetime createdAt
     }
 
-    sf_logs ||--|{ KB : "학습 기반"
+    sf_logs ||--|{ KB : "HAS_LEARNING_DATA"
 ```
 
 ---
