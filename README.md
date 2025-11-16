@@ -5,51 +5,53 @@
 ### **AI 기반 금융 보안 로그 자율 분석·학습 파이프라인**
 
 **2025 AI Agent 해커톤 출품작 – AIM 팀(AI + IM)**
-SecureFlow는 금융·기업 보안 환경에서 들어오는 보안 로그를
-**AI가 스스로 수집 → 분석 → 판단 → 학습 → 대응**하는
-**완전 자동화 보안 분석 파이프라인**입니다.
+SecureFlow는 금융·기업 보안 환경의 보안 로그를
+**AI가 스스로 수집 → 분석 → 판단 → 학습 → 대응**하는 완전 자동화 보안 분석 파이프라인입니다.
 
 ---
 
 # 🚀 SecureFlow Overview
 
-SecureFlow는 다음을 전자동으로 수행합니다:
+SecureFlow는 다음을 완전 자동으로 수행합니다:
 
-* 정규식 기반 PII(개인정보) 정밀 탐지 + 100% 마스킹
-* Upstage Solar Pro 2 기반 위험도/카테고리 판단
-* n8n 기반 전처리 → PII 탐지 → 위험도 분류 → 학습 여부 판단 → KB 저장
-* Express 백엔드 API + SSE 기반 실시간 스트림
-* React 대시보드에서 위험도·학습 상태 실시간 시각화
-* Security KB 자동 학습 & 유사 사례 검색
-* 12시간 주기 로그 Sanitized 백업(XLSX) + 이메일 발송
+* **정규식 기반 PII(개인정보) 탐지 및 100% 마스킹**
+* **Solar Pro 2 기반 위험도·카테고리 분석**
+* **n8n 기반 엔드-투-엔드 자동화 워크플로**
+* **학습 대상 자동 분기 → Security KB 저장 → 상태 업데이트**
+* **Express 백엔드 + SSE 실시간 스트림 기반 대시보드**
+* **12시간 주기 Sanitized 로그 백업(XLSX) + 이메일 발송**
+* **Slack/Email 기반 High Risk 경보**
 
 ---
 
 # 🧩 시스템 아키텍처
 
 ```
-          [외부 시스템 로그]
-                   ↓
-       ┌───────────────┐
-       │     n8n       │
-       │ Raw Collector │
-       │ Raw Worker    │
-       │ PII 탐지       │
-       │ 위험도 판단     │
-       │ 학습큐 분류     │
-       └───────────────┘
-                   ↓
-           [Express Backend]
-     logs.json (대시보드 캐시)
-     ↕ SSE 실시간 스트림
-     kb.json (KB 저장)
-                   ↓
-          [React Live Dashboard]
+[외부 시스템] 
+     ↓  Webhook
+┌───────────────────────┐
+│         n8n           │
+│ Raw Collector         │
+│ Raw Worker            │
+│ PII 탐지 / 마스킹       │
+│ 위험도·카테고리 분석     │
+│ 학습 큐 처리            │
+│ KB 저장 / 상태 업데이트   │
+└───────────────────────┘
+        ↓
+┌──────────────────────────────┐
+│     Express Backend(API)     │
+│ logs.json   ← 대시보드 캐시    │
+│ kb.json     ← Security KB     │
+│ SSE /events → 실시간 대시보드   │
+└──────────────────────────────┘
+        ↓
+[React Live Dashboard]
 ```
 
 ---
 
-# 📦 프로젝트 구조 (최신 버전)
+# 📦 프로젝트 구조 (최신)
 
 ```
 im-bank-n8n-agent/
@@ -57,7 +59,7 @@ im-bank-n8n-agent/
 ├── backend/
 │   ├── server.js               # Express API / SSE / KB 관리
 │   └── data/
-│       ├── logs.json           # 대시보드용 캐싱 (원본 PII는 없음)
+│       ├── logs.json           # 대시보드용 캐싱 (원본 PII 없음)
 │       └── kb.json             # 보안 학습 지식베이스
 │
 ├── frontend/
@@ -67,6 +69,7 @@ im-bank-n8n-agent/
 ├── n8n-workflows/
 │   ├── SecureFlow – Raw Collector.json
 │   ├── SecureFlow – Raw Worker.json
+│   ├── SecureFlow – Raw Watchdog.json
 │   ├── SecureFlow – 학습 워커.json
 │   ├── SecureFlow – Full Auto Analysis.json
 │   └── SecureFlow – sf_logs_backup_and_cleanup_12h.json
@@ -74,78 +77,67 @@ im-bank-n8n-agent/
 └── README.md
 ```
 
-### ❗ 중요한 구조 변경 (최신 반영)
+### 📝 저장 구조 요약 (중요)
 
-* **sf_logs의 실질 저장소는 n8n Data Table/Store**
-  → 백엔드에서는 **읽기만** 한다 (수신 후 SSE 브로드캐스트).
-
-* **logs.json은 대시보드 캐시 용도**
-  → 원본 PII 없음, 항상 redactedLog 기반으로만 저장됨.
-
-* 학습 데이터(KB)는 항상 **PII 제거된 redactedLog 기반 text만 저장**됨.
+| 저장 위치                        | 역할                             |
+| ---------------------------- | ------------------------------ |
+| **n8n Data Table (sf_logs)** | 모든 분석 결과 저장하는 “실제 DB”          |
+| **backend/data/logs.json**   | 대시보드용 캐시 / SSE 반영용             |
+| **backend/data/kb.json**     | Security KB 학습 데이터 저장          |
+| **백업 XLSX**                  | redactedLog 기반 Sanitized 로그 백업 |
 
 ---
 
 # ⚙️ 핵심 기능
 
-| 기능                   | 설명                                     |
-| -------------------- | -------------------------------------- |
-| 🔍 PII 탐지 및 마스킹      | 이메일/전화/주민번호/카드번호 탐지 후 완전 마스킹           |
-| 🧠 AI 위험도 분석         | Solar Pro 2 기반 High·Medium·Low·Safe 분류 |
-| 🔄 자동화 파이프라인         | Webhook → 분석 → 저장 → 학습 → 상태 동기화        |
-| 📚 Security KB 자동 학습 | PII 없는 로그만 학습, KB에 저장                  |
-| 📊 실시간 대시보드          | SSE 기반 지연 0초 실시간 스트림                   |
-| 🚨 High Risk 경보      | 이메일·Slack 연동                           |
-| 🧼 12h 주기 백업         | Sanitizer → XLSX → 이메일 + 내부 저장         |
+| 기능                   | 설명                                                 |
+| -------------------- | -------------------------------------------------- |
+| 🔍 PII 탐지·마스킹        | 이메일, 전화번호, 주민번호, 카드번호 자동 탐지 후 `[EMAIL]` 등 토큰으로 마스킹 |
+| 🧠 AI 위험도 분석         | Solar Pro 2 기반 위험도·카테고리 분류                         |
+| 🔄 AI 자동화            | Webhook → 분석 → 학습 → KB 저장 → 상태 동기화                 |
+| 📚 KB 자동 학습          | PII 없는 로그만 학습, 과거 패턴 기반 판단 고도화                     |
+| 📊 실시간 대시보드(SSE)     | 위험도 변화·학습 상태 즉시 반영                                 |
+| 🚨 High Risk 경보      | Slack/Email 알림 트리거                                 |
+| 🧼 12시간 Sanitized 백업 | redactedLog 기반 XLSX → 메일 + 내부 저장                   |
 
 ---
 
-# 🔗 주요 API 엔드포인트
+# 🔗 주요 API (Backend)
 
-| Method | Endpoint                | 설명                   |
-| ------ | ----------------------- | -------------------- |
-| POST   | `/api/logs`             | n8n에서 분석 완료된 로그 push |
-| GET    | `/api/logs`             | 대시보드용 로그 조회          |
-| PUT    | `/api/logs/:id`         | 학습 완료 상태 변경          |
-| POST   | `/security-kb`          | KB 항목 저장             |
-| GET    | `/security-kb/examples` | 유사 학습 사례 조회          |
-| GET    | `/events`               | SSE 실시간 스트림          |
-
----
-
-# 🧰 기술 스택
-
-| 영역         | 기술                                          |
-| ---------- | ------------------------------------------- |
-| Backend    | Node.js(Express), SSE, JSON Storage         |
-| Frontend   | React, TailwindCSS, Chart.js                |
-| AI 분석      | Upstage **Solar Pro 2**                     |
-| Automation | n8n Workflow Engine                         |
-| Infra      | Naver Cloud                                 |
-| Storage    | n8n Data Table(sf_logs), kb.json, logs.json |
+| Method   | Endpoint                | 설명               |
+| -------- | ----------------------- | ---------------- |
+| **POST** | `/api/logs`             | n8n이 분석 결과 push  |
+| **GET**  | `/api/logs`             | 대시보드용 로그 조회      |
+| **PUT**  | `/api/logs/:id`         | 로그 학습 완료 상태 업데이트 |
+| **POST** | `/security-kb`          | KB 항목 저장         |
+| **GET**  | `/security-kb/examples` | 유사 사례 조회         |
+| **GET**  | `/events`               | SSE 실시간 스트림      |
 
 ---
 
-# 🧩 전체 파이프라인 흐름
+# 🧩 전체 파이프라인 (Mermaid)
 
 ```mermaid
 flowchart TD
-    A[Webhook 수집] --> B[PII 탐지 및 마스킹]
-    B --> C[위험도 분류 (Solar 룰 기반)]
-    C --> D[백엔드 저장]
-    D --> E{High Risk?}
-    E -->|Yes| F[Slack/Email 경보]
-    C --> G{학습 대상?}
-    G -->|Yes| H[학습 텍스트 생성]
-    H --> I[Security KB 저장]
-    I --> J[로그 상태 업데이트]
-    D --> K[React Dashboard SSE 반영]
+    A[Webhook 수집] --> B[전처리 · 스키마 정규화]
+    B --> C[PII 탐지 및 마스킹]
+    C --> D[위험도 분류 (Solar Pro 2)]
+    D --> E[백엔드 저장 / SSE 스트림]
+    
+    D --> F{학습 대상?}
+    F -->|YES| G[학습 텍스트 생성]
+    G --> H[Security KB 저장]
+    H --> I[상태 업데이트 (PUT /api/logs/:id)]
 
+    D --> J{High Risk?}
+    J -->|YES| K[Slack/Email 경보]
+
+    E --> L[React Dashboard (실시간)]
 ```
 
 ---
 
-# 🧬 ERD (최신 필드 반영)
+# 🧬 ERD (최신)
 
 ```mermaid
 erDiagram
@@ -173,25 +165,25 @@ erDiagram
         datetime createdAt
     }
 
-    sf_logs ||--|{ KB : "HAS_LEARNING_DATA"
+    sf_logs ||--|{ KB : HAS_LEARNING_DATA
 ```
 
 ---
 
-# 🧼 12시간 주기 자동 백업
+# 🧼 12시간 자동 백업 (Sanitized XLSX)
 
-### ✔ 동작 방식
+SecureFlow는 **원본 PII가 포함된 로그를 절대 백업하지 않습니다.**
 
-1. n8n에서 sf_logs **최근 12h 로그 조회**
-2. Backup Sanitizer에서 모든 로그 redactedLog 기준 재마스킹
-3. XLSX 변환
-4. SMTP 이메일 전송(TLS 암호화)
-5. 내부 디스크에도 백업 저장(옵션)
+백업 워크플로는:
 
-### ✔ 원본 PII는 백업하지 않음
+1. 12시간 범위 로그 조회(sf_logs)
+2. `redactedLog` 기반 Sanitizer 재마스킹
+3. Convert → XLSX 파일 생성
+4. SMTP(TLS)로 관리자 이메일 발송
+5. `/sf_backups/` 디스크에도 저장(Optional)
 
-→ redactedLog만 사용
-→ 내부 저장 + 이메일 모두 동일하게 안전
+✔ **PII 0byte 보장**
+✔ **대회 심사 기준 안전성 충족**
 
 ---
 
@@ -204,52 +196,48 @@ npm install
 node server.js
 
 # Frontend
-cd ../frontend
+cd frontend
 npm install
 npm run dev
 ```
 
-* Dashboard → `http://SERVER_IP:5173`
-* Backend API → `http://SERVER_IP:3001`
+* Dashboard: `http://<SERVER_IP>:5173`
+* API Server: `http://<SERVER_IP>:3001`
 
 ---
 
-# 🧠 심사위원 Q&A 예상 답변
+# 🧠 심사위원 Q&A 대비
 
-### Q1. 개인정보를 학습시키나요?
+### 🔹 Q. 개인정보를 학습에 사용하나요?
 
-👉 **절대 NO.**
-PII 탐지 후 redactedLog만 사용.
-PII 있는 로그는 자동으로 학습 제외.
+**절대 사용하지 않습니다.**
+모든 로그는 PII 정규식 검사 후
+→ PII 있으면 학습 제외
+→ PII 없는 redactedLog만 학습
 
-### Q2. 실제 금융권 도입 가능한가?
+### 🔹 Q. 실제 금융 환경에 적용 가능한가요?
 
-가능합니다.
-LLM 분석 + 이벤트 기반 n8n 파이프라인 + SSE 대시보드
-→ 실제 SOC 구조와 동일.
+네.
+비동기 Queue/Worker 구조, SSE 대시보드, 자동 학습 파이프라인은
+실제 SOC 운영 모델과 동일합니다.
 
-### Q3. 학습은 어떻게 이뤄지나요?
+### 🔹 Q. 학습은 어떻게 이뤄지나요?
 
-* 위험 로그 중 PII 없는 로그만 학습 대상
-* redactedLog + 요약 포맷으로 text 생성
-* KB 저장 후 유사 패턴 탐지에 사용
-
-### Q4. AI가 어떻게 고도화되나요?
-
-* 과거 KB 데이터를 기반으로
-* 신입 보안 분석처럼 과거 케이스와 비교
-* 시간이 지날수록 판단 품질 상승
+1. AI가 로그 분석
+2. redactedLog 기반 “학습 텍스트 생성”
+3. Security KB 저장
+4. 이후 유사 사건 비교에 사용 → 탐지 정확도 향상
 
 ---
 
 # 👥 팀 AIM
 
-| 항목  | 내용                                  |
-| --- | ----------------------------------- |
-| 팀명  | AIM (AI + IM)                       |
-| 슬로건 | *Aim the Security of Finance*       |
-| 역할  | Backend / n8n / AI / Frontend 통합 개발 |
-| 목표  | “AI가 로그를 읽고, 이해하고, 학습한다.”           |
+| 항목  | 내용                                 |
+| --- | ---------------------------------- |
+| 팀명  | AIM (AI + IM)                      |
+| 슬로건 | *Aim the Security of Finance*      |
+| 역할  | Backend / n8n / AI / Frontend 통합개발 |
+| 목표  | “AI가 보안 로그를 읽고, 판단하고, 학습한다.”       |
 
 ---
 
