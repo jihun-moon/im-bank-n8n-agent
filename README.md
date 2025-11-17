@@ -74,13 +74,15 @@ im-bank-n8n-agent/
 │   ├── src/App.js              # SSE 실시간 UI
 │   ├── src/App.css
 │
-├── n8n-workflows/              # 전체 자동화 파이프라인
-│   ├── SecureFlow – Raw Collector.json
-│   ├── SecureFlow – Raw Worker.json
-│   ├── SecureFlow – Raw Watchdog.json
-│   ├── SecureFlow – Learning Worker.json
-│   ├── SecureFlow – Full Auto Analyzer.json
-│   └── SecureFlow – sf_logs_backup_12h.json
+├── n8n-workflows/             # SecureFlow 전체 자동화 파이프라인
+│   ├── 0. 전체 자동 분석 파이프라인 (Main Auto Analysis).json
+│   ├── 1. 원본 로그 수집기 (Raw Log Collector).json
+│   ├── 2. Raw 큐 감시자 (Raw Queue Watchdog).json
+│   ├── 3. 로그 분석 워커 (Raw Worker / Queue → Analyzer).json
+│   ├── 4. 학습 데이터 워커 (Learning Worker).json
+│   ├── 5. 랜덤 인시던트 생성기 (테스트용).json
+│   ├── 6. 로그 백업 & 자동정리 (12시간 주기).json
+│   └── 로그 간편 삭제.json   # (선택적 툴)
 │
 └── README.md
 ```
