@@ -1,4 +1,4 @@
-# 🧠 AIM SECURITYFLOW
+# 🧠 **AIM SECURITYFLOW**
 
 ### **Aim the Security of Finance**
 
@@ -6,47 +6,54 @@
 
 **2025 AI Agent 해커톤 출품작 – AIM 팀(AI + IM)**
 
-SecureFlow는 금융·기업 환경의 보안 로그를
-**AI가 스스로 수집 → 분석 → 판단 → 학습 → 대응**하는 완전 자동화 보안 분석 파이프라인입니다.
+SecureFlow는 금융·엔터프라이즈 환경에서 발생하는 방대한 보안 로그를
+**AI가 스스로 수집 → 분석 → 판단 → 학습 → 대응**까지 수행하는
+완전 자동화(Self-Running) 보안 분석 플랫폼입니다.
+
+기업 보안관제를 “자동화 · 무인화 · 자가학습”으로 진화시키는 것이 목표입니다.
 
 ---
 
-# 🚀 SecureFlow Overview
+# 🚀 **SecureFlow Overview**
 
-SecureFlow는 다음을 완전 자동으로 수행합니다:
+SecureFlow는 다음 기능을 **사람 개입 없이 24/7 완전 자동**으로 수행합니다:
 
-* **정규식 기반 PII(개인정보) 탐지 및 100% 마스킹**
+* **정규식 기반 PII(개인정보) 탐지 및 전량 마스킹**
 * **Upstage Solar Pro 2 기반 위험도·카테고리 자동 분석**
-* **Raw Queue 기반 안정적 수집 → Worker 기반 분석**
-* **학습 대상 자동 선별 → Security KB 저장 → 상태 업데이트**
-* **Express + SQLite 기반 백엔드 (secureflow.db)**
-* **SSE 기반 실시간 대시보드**
-* **12시간·24시간 자동 백업(CSV) + Email 발송**
-* **Raw Queue Watchdog 기반 장애 자동 복구(Self-Healing)**
+* **Raw Queue → Worker 기반의 안정적 대량 처리**
+* **학습 대상 자동 선별 → Security KB 자동 축적(Self-Learning)**
+* **Express + SQLite 기반 백엔드 with secureflow.db**
+* **SSE 기반 실시간 대시보드 스트림**
+* **12h / 24h 자동 백업(CSV) + Email 알림**
+* **Raw Queue Watchdog 기반 자동 장애 복구(Self-Healing)**
+
+**핵심 철학 → “AI가 읽고, 판단하고, 학습하는 금융 보안”**
 
 ---
 
-# 🧩 시스템 아키텍처
+# 🧩 **시스템 아키텍처**
 
 ```
 [외부 시스템] 
      ↓  Webhook
 ┌──────────────────────────┐
-│        n8n Engine        │
-│ Raw Collector            │
-│ Raw Worker               │
-│ Raw Queue Watchdog       │
-│ Full Analyzer            │
-│ PII 탐지 / AI 위험도 분석  │
-│ KB 검색 / 학습 처리        │
+│         n8n Engine       │
+│ ─ Raw Collector          │
+│ ─ Raw Worker (0/1)       │
+│ ─ Raw Queue Watchdog     │
+│ ─ Full Analyzer          │
+│     ⤷ PII 탐지           │
+│     ⤷ AI 위험도 분석      │
+│     ⤷ KB 검색            │
+│     ⤷ 학습 처리           │
 └──────────────────────────┘
         ↓
-┌──────────────────────────────¬
-│   Express Backend + SQLite   │
-│   secureflow.db              │
-│   /api/logs                  │
-│   /security-kb               │
-│   /events(SSE)               │
+┌──────────────────────────────┐
+│ Express Backend + SQLite     │
+│ secureflow.db                │
+│ /api/logs                    │
+│ /security-kb                 │
+│ /events(SSE)                 │
 └──────────────────────────────┘
         ↓
 [React Live Dashboard]
@@ -54,7 +61,7 @@ SecureFlow는 다음을 완전 자동으로 수행합니다:
 
 ---
 
-# 📦 프로젝트 구조 (최신 버전)
+# 📦 **프로젝트 구조 (최신 버전)**
 
 ```
 im-bank-n8n-agent/
@@ -64,7 +71,7 @@ im-bank-n8n-agent/
 │   ├── ecosystem.config.js     # PM2 운영 설정
 │   └── data/
 │       ├── secureflow.db       # 모든 로그/KB 실제 저장소
-│       └── (logs.json, kb.json - 사용 안함 / 보관)
+│       └── (구 JSON 백업)      
 │
 ├── sf_backups/                 # CSV 자동 백업 저장소
 │       ├── sf_logs_backup_*.csv
@@ -74,51 +81,51 @@ im-bank-n8n-agent/
 │   ├── src/App.js              # SSE 실시간 UI
 │   ├── src/App.css
 │
-├── n8n-workflows/             # SecureFlow 전체 자동화 파이프라인
-│   ├── 0. 전체 자동 분석 파이프라인 (Main Auto Analysis).json
+├── n8n-workflows/
+│   ├── 0. 전체 자동 분석 파이프라인.json
 │   ├── 1. 원본 로그 수집기 (Raw Log Collector).json
-│   ├── 2. Raw 큐 감시자 (Raw Queue Watchdog).json
-│   ├── 3. 로그 분석 워커 (Raw Worker / Queue → Analyzer).json
-│   ├── 4. 학습 데이터 워커 (Learning Worker).json
-│   ├── 5. 랜덤 인시던트 생성기 (테스트용).json
-│   ├── 6. 로그 백업 & 자동정리 (12시간 주기).json
-│   └── 로그 간편 삭제.json   # (선택적 툴)
+│   ├── 2. Raw Queue Watchdog.json
+│   ├── 3. Raw Worker (Queue → Analyzer).json
+│   ├── 4. Learning Worker.json
+│   ├── 5. 랜덤 인시던트 생성기.json
+│   ├── 6. 로그 백업 & 자동정리.json
+│   └── 로그 간편 삭제.json
 │
 └── README.md
 ```
 
 ---
 
-# 📊 저장 구조 요약
+# 📊 **저장 구조 요약**
 
-| 저장소                        | 설명                           |
-| -------------------------- | ---------------------------- |
-| **secureflow.db (SQLite)** | 모든 로그·학습 데이터·메타데이터 **실제 DB** |
-| **sf_logs**                | AI 분석 결과 + 마스킹 로그 저장         |
-| **kb_items**               | AI 생성 학습 텍스트 저장              |
-| **sf_backups/*.csv**       | 12h logs / 24h kb 자동 백업      |
-| (구) logs.json / kb.json    | SSE 이전 버전 / 현재는 사용 안 함       |
-
----
-
-# ⚙️ 핵심 기능 요약
-
-| 기능                          | 설명                                                       |
-| --------------------------- | -------------------------------------------------------- |
-| 🔍 **PII 탐지/마스킹**           | 정규식 기반 → `[EMAIL]`, `[PHONE]`, `[RRN]`, `[CARD]` 등 토큰 처리 |
-| 🤖 **AI 위험도 분석**            | Upstage Solar Pro 2 기반 High/Medium/Low/Safe 분류           |
-| 📚 **Security KB 자동 학습**    | High/Medium + PII 없음 → 학습                                |
-| 🧠 **Self-Learning**        | 학습된 KB로 다음 로그 정확도 향상                                     |
-| 📊 **React 실시간 대시보드**       | SSE 기반 실시간 스트림                                           |
-| 🔥 **High Risk 경보**         | Email/Slack 연동                                           |
-| 🗃 **Raw Queue 기반 보장 처리**   | 수집-분석 분리로 안정적 처리                                         |
-| 🛠 **Raw Queue Watchdog**   | 워커 5분 이상 멈춤 → 자동 복구                                      |
-| 🧼 **12h Sanitized Backup** | PII 없는 redactedLog만 백업                                   |
-| 📧 **백업 파일 이메일 자동 발송**      | csv 첨부로 관리자에게 전송                                         |
+| 저장소                    | 설명                            |
+| ---------------------- | ----------------------------- |
+| **secureflow.db**      | 모든 로그·학습 데이터·메타데이터 저장되는 실제 DB |
+| **sf_logs**            | AI 분석 결과 + 마스킹 로그 저장          |
+| **kb_items**           | AI 생성 학습 텍스트 저장               |
+| **sf_backups/**        | CSV 자동 백업 (12h logs / 24h kb) |
+| (구) logs.json, kb.json | SSE 이전 버전 — 현재는 사용 안 함        |
 
 ---
 
-# 🔗 주요 API (Backend)
+# ⚙️ **핵심 기능 요약**
+
+| 기능                          | 설명                                                 |
+| --------------------------- | -------------------------------------------------- |
+| 🔍 **PII 탐지/마스킹**           | 정규식 기반 → `[EMAIL]`, `[PHONE]`, `[RRN]`, `[CARD]` 등 |
+| 🤖 **AI 위험도 분석(Solar)**     | High/Medium/Low/Safe 자동 분류                         |
+| 📚 **Security KB 자동 학습**    | High/Medium + PII 없음 → 학습 대상                       |
+| 🧠 **Self-Learning Loop**   | 학습된 KB가 다음 분석에서 자동 활용                              |
+| 📊 **SSE 실시간 대시보드**         | 신규 로그·학습·경보 실시간 스트림                                |
+| 🔥 **High Risk 경보**         | Email/Slack 자동 알림                                  |
+| 🗃 **Raw Queue 구조**         | 수집-분석 분리 → 폭주 상황에서도 안정                             |
+| 🛠 **Watchdog**             | Worker 5분 정지 → 자동 재시도·격리                           |
+| 🧼 **12h Sanitized Backup** | PII 제거된 redactedLog만 백업                            |
+| 📧 **자동 이메일 발송**            | 백업 파일 첨부하여 관리자에게 자동 전달                             |
+
+---
+
+# 🔗 **주요 API (Backend)**
 
 | Method    | Endpoint                       | 설명          |
 | --------- | ------------------------------ | ----------- |
@@ -131,7 +138,7 @@ im-bank-n8n-agent/
 
 ---
 
-# 🧩 전체 파이프라인 (Mermaid)
+# 🧩 **전체 파이프라인 (Mermaid)**
 
 ```mermaid
 flowchart TD
@@ -155,7 +162,7 @@ flowchart TD
 
 ---
 
-# 🧬 ERD (최신 구조)
+# 🧬 **ERD (최신 구조)**
 
 ```mermaid
 erDiagram
@@ -188,18 +195,17 @@ erDiagram
 
 ---
 
-# 🧼 자동 백업 시스템 (sf_backups)
+# 🧼 **자동 백업 시스템**
 
-### ✔ sf_logs (12시간마다)
+### ✔ **sf_logs (12시간)**
 
-* redactedLog 기반
-* PII 완전 제거
-* CSV 생성 후 이메일 첨부
+* PII 제거된 redactedLog 기반
+* CSV 파일 생성 후 이메일 자동 발송
 
-### ✔ sf_kb (24시간마다)
+### ✔ **sf_kb (매일 03:00)**
 
-* 학습 데이터 전체 백업
-* 7일 이상된 항목 자동 삭제
+* 전체 KB 백업
+* 7일 이상 된 KB 자동 삭제
 
 ### ✔ 저장 위치
 
@@ -210,7 +216,7 @@ erDiagram
 
 ---
 
-# 💻 실행 방법
+# 💻 **실행 방법**
 
 ```bash
 # Backend
@@ -230,33 +236,34 @@ serve -s dist
 
 ---
 
-# 🧠 FAQ
+# 🧠 **FAQ**
 
 ### 🔹 개인정보 학습하나요?
 
-**아니요.**
-PII가 1%라도 감지되면 → 학습 제외.
+**절대 아님.**
+PII 탐지되면 → `ai_learn_enabled = false` → 자동 제외됩니다.
 
-### 🔹 SecureFlow는 실제 금융 환경에서도 동작 가능한가?
+### 🔹 금융 환경에서도 사용 가능?
 
-네. Raw Queue·Worker·Watchdog·SSE는 실제 SOC 모델과 동일합니다.
+예. 구조 자체가 **SIEM → Raw Queue → Worker → Analyzer** 기반 SOC 모델과 동일.
 
-### 🔹 학습은 어떻게 이루어지나요?
+### 🔹 학습은 어떻게 동작?
 
-* redacted(마스킹된) 로그만 사용
+* 마스킹된(redacted) 로그만 학습
 * AI가 학습 텍스트 생성
-* KB 저장 → 다음 요청 판단 시 반영
+* KB 저장 → 다음 위험도 판단에 즉시 반영
+  → 시간이 갈수록 정밀도↑
 
 ---
 
-# 👥 팀 AIM
+# 👥 **팀 AIM**
 
-| 항목  | 내용                                  |
-| --- | ----------------------------------- |
-| 팀명  | AIM (AI + IM)                       |
-| 슬로건 | *Aim the Security of Finance*       |
-| 역할  | Backend / n8n / Frontend / AI 통합 개발 |
-| 목표  | “AI가 보안 로그를 읽고, 판단하고, 학습한다.”        |
+| 항목  | 내용                                     |
+| --- | -------------------------------------- |
+| 팀명  | AIM (AI + IM)                          |
+| 슬로건 | *Aim the Security of Finance*          |
+| 역할  | Backend / n8n Workflow / Frontend / AI |
+| 목표  | “AI가 보안 로그를 읽고, 판단하고, 학습한다.”           |
 
 ---
 
