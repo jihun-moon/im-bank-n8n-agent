@@ -211,5 +211,3 @@ Backend → `http://SERVER_IP:3001`
 # © 2025 AIM SecurityFlow
 
 **Aim the Security of Finance.**
-
-필요한 거 말해! 💛
