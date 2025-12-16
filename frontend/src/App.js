@@ -2,12 +2,14 @@
 import React, { useEffect, useState, useRef } from "react";
 import "./App.css";
 
-// 🔗 백엔드 엔드포인트 (Node server.js)
-const NODE_BACKEND_BASE = "http://YOUR_SERVER_IP:3001"; // SSE, /api/logs 등
+// 🔗 백엔드 엔드포인트 (Node server-sqlite.js)
+const NODE_BACKEND_BASE = "http://YOUR_SERVER_IP:3001";
 
 function App() {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  const [summary, setSummary] = useState(null);
 
   const [selectedRisk, setSelectedRisk] = useState("ALL");
   const [selectedCategory, setSelectedCategory] = useState("ALL");
@@ -16,26 +18,67 @@ function App() {
   const [lastFetchAt, setLastFetchAt] = useState(null);
   const [latestLogTime, setLatestLogTime] = useState(null);
 
+  // 🔧 Garbage 로그 기본은 숨기기
+  const [hideGarbage, setHideGarbage] = useState(true);
+
+  // ✅ 운영 모니터링 지표 상태
+  const [metrics, setMetrics] = useState({
+    windowMinutes: 5,
+    totalLast: 0,
+    highLast: 0,
+    queuePending: 0,
+    garbageCount: 0,
+    avgProcessingMs: 0,
+    learnedLast: 0,
+  });
+
   // ✅ SSE가 "최초 연결인지 / 재연결인지" 구분하기 위한 ref
   const firstConnectRef = useRef(true);
+
+  // 🔹 /api/summary 호출
+  async function fetchSummary() {
+    try {
+      const res = await fetch(`${NODE_BACKEND_BASE}/api/summary`);
+      const data = await res.json();
+      setSummary(data);
+    } catch (err) {
+      console.error("summary 로드 실패:", err);
+    }
+  }
+
+  // 🔹 /metrics 호출
+  async function fetchMetrics() {
+    try {
+      const res = await fetch(`${NODE_BACKEND_BASE}/metrics`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setMetrics((prev) => ({ ...prev, ...data }));
+    } catch (err) {
+      console.error("metrics 로드 실패:", err);
+    }
+  }
 
   // 🔹 초기 1회 fetch + SSE 연결
   useEffect(() => {
     let eventSource = null;
     let retryTimeout = null;
+    let metricsTimer = null;
 
     async function fetchLogs() {
       try {
-        const res = await fetch(`${NODE_BACKEND_BASE}/api/logs`);
+        const res = await fetch(`${NODE_BACKEND_BASE}/api/logs?limit=500`);
         const data = await res.json();
         const logsArray = Array.isArray(data) ? data : [];
 
         setLogs(logsArray);
-        setLatestLogTime(
-          logsArray.length > 0
-            ? logsArray[logsArray.length - 1].timestamp
-            : null
-        );
+        if (logsArray.length > 0) {
+          const last = logsArray[0]; // created_at DESC 기준이므로 첫 번째가 최신
+          setLatestLogTime(
+            last.occurred_at || last.timestamp || last.created_at || null
+          );
+        } else {
+          setLatestLogTime(null);
+        }
         setLastFetchAt(new Date().toISOString());
       } catch (err) {
         console.error("로그 로드 실패:", err);
@@ -44,7 +87,7 @@ function App() {
 
     async function initialLoad() {
       setLoading(true);
-      await fetchLogs(); // 🔸 페이지 첫 로드 시 한 번만 전체 조회
+      await Promise.all([fetchLogs(), fetchSummary(), fetchMetrics()]);
       setLoading(false);
     }
 
@@ -56,15 +99,17 @@ function App() {
       const es = new EventSource(`${NODE_BACKEND_BASE}/events`);
       eventSource = es;
 
-      // ✅ 재연결되더라도 /api/logs로 전체 초기화는 "최초 1번만"
       es.onopen = () => {
         console.log("SSE 연결/재연결 완료");
         if (firstConnectRef.current) {
           firstConnectRef.current = false;
-          console.log("최초 연결 → /api/logs 로 초기 스냅샷 동기화");
+          console.log("최초 연결 → /api/logs + /api/summary + /metrics 동기화");
           fetchLogs();
+          fetchSummary();
+          fetchMetrics();
         } else {
-          console.log("재연결 → 기존 로그 유지 (대시보드 강제 초기화 안 함)");
+          console.log("재연결 → 기존 로그/summary/metrics 유지");
+          fetchMetrics();
         }
       };
 
@@ -72,10 +117,75 @@ function App() {
         try {
           const payload = JSON.parse(event.data);
 
-          // 1) 서버가 "전체 배열"을 던져주는 형태 (현재 구조)
+          // ✅ 서버가 { type: "logs", payload: [...] } 형식으로 전체 캐시 전달
+          if (
+            payload &&
+            payload.type === "logs" &&
+            Array.isArray(payload.payload)
+          ) {
+            const arr = payload.payload;
+
+            setLogs((prev) => {
+              if (JSON.stringify(prev) === JSON.stringify(arr)) return prev;
+
+              document.body.classList.add("highlight-glow");
+              setTimeout(
+                () => document.body.classList.remove("highlight-glow"),
+                500
+              );
+
+              return arr;
+            });
+
+            setLastFetchAt(new Date().toISOString());
+            if (arr.length > 0) {
+              const last = arr[0];
+              setLatestLogTime(
+                last.occurred_at || last.timestamp || last.created_at || null
+              );
+            }
+
+            fetchSummary();
+            fetchMetrics();
+            return;
+          }
+
+          // ✅ 서버가 { type: "log", payload: {...} } 형식으로 단일 로그 브로드캐스트
+          if (payload && payload.type === "log" && payload.payload) {
+            const newLog = payload.payload;
+
+            setLogs((prev) => {
+              const merged = [newLog, ...prev];
+              const seen = new Set();
+              const deduped = merged.filter((l) => {
+                const key =
+                  l.log_id ||
+                  l.id ||
+                  l.logId ||
+                  `${l.log_detail ||
+                    l.Log_Detail ||
+                    l.redacted_log ||
+                    ""}::${l.occurred_at || l.timestamp || ""}`;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+              });
+              return deduped.slice(0, 500);
+            });
+
+            setLastFetchAt(new Date().toISOString());
+            const t =
+              newLog.occurred_at || newLog.timestamp || newLog.created_at;
+            if (t) setLatestLogTime(t);
+
+            fetchSummary();
+            fetchMetrics();
+            return;
+          }
+
+          // ✅ 예전 버전 호환: 서버가 그냥 배열 자체를 보내는 경우
           if (Array.isArray(payload)) {
             setLogs((prev) => {
-              // 내용이 완전히 같으면 굳이 다시 그리지 않기
               if (JSON.stringify(prev) === JSON.stringify(payload)) return prev;
 
               document.body.classList.add("highlight-glow");
@@ -89,57 +199,20 @@ function App() {
 
             setLastFetchAt(new Date().toISOString());
             if (payload.length > 0) {
+              const last = payload[0];
               setLatestLogTime(
-                payload[payload.length - 1].timestamp || null
+                last.occurred_at || last.timestamp || last.created_at || null
               );
             }
+
+            fetchSummary();
+            fetchMetrics();
             return;
           }
 
-          // 2) { type: "INIT", logs: [...] } 형식 지원 (나중에 서버 바꿔도 됨)
-          if (payload && payload.type === "INIT" && Array.isArray(payload.logs)) {
-            setLogs(payload.logs);
-            setLastFetchAt(new Date().toISOString());
-            if (payload.logs.length > 0) {
-              setLatestLogTime(
-                payload.logs[payload.logs.length - 1].timestamp || null
-              );
-            }
-            return;
-          }
-
-          // 3) { type: "NEW_LOG", log: {...} } 형식 지원
-          if (payload && payload.type === "NEW_LOG" && payload.log) {
-            setLogs((prev) => {
-              const merged = [payload.log, ...prev];
-              const seen = new Set();
-              // log_id / id / timestamp+본문 기준으로 중복 제거
-              const deduped = merged.filter((l) => {
-                const key =
-                  l.id ||
-                  l.log_id ||
-                  l.logId ||
-                  `${l.log_detail || l.Log_Detail || ""}::${
-                    l.timestamp || ""
-                  }`;
-                if (seen.has(key)) return false;
-                seen.add(key);
-                return true;
-              });
-              return deduped.slice(0, 500); // 최대 500개만 유지
-            });
-
-            setLastFetchAt(new Date().toISOString());
-            if (payload.log.timestamp) {
-              setLatestLogTime(payload.log.timestamp);
-            }
-            return;
-          }
-
-          // 그 외 heartbeat 등은 무시
+          // ✅ 다른 타입 혹은 heartbeat 등은 무시
         } catch (err) {
-          // heartbeat 같은 건 여기서 에러 안 나게 조용히 무시
-          // console.error("SSE 데이터 처리 실패:", err);
+          // heartbeat 등으로 인한 파싱 에러는 조용히 무시
         }
       };
 
@@ -155,48 +228,67 @@ function App() {
     initialLoad();
     connectSSE();
 
+    // 🔁 백엔드/SSE가 잠깐 끊겨도 10초마다 운영 지표 보정
+    metricsTimer = setInterval(() => {
+      fetchMetrics();
+    }, 10000);
+
     return () => {
       if (eventSource) eventSource.close();
       if (retryTimeout) clearTimeout(retryTimeout);
+      if (metricsTimer) clearInterval(metricsTimer);
     };
   }, []);
-
-  // ---------- 통계 계산 ----------
-  const total = logs.length;
-  const highRisk = logs.filter((l) => l.risk === "High").length;
-  const learnQueue = logs.filter(
-    (l) => l.ai_learn_enabled && !l.ai_learn_completed
-  ).length;
-  const learned = logs.filter((l) => l.ai_learn_completed).length;
-  const piiCases = logs.filter((l) => l.pii_regex_found).length;
-
-  const exfilCount = logs.filter(
-    (l) => l.incident_category === "exfiltration"
-  ).length;
-  const credCount = logs.filter(
-    (l) => l.incident_category === "credential_abuse"
-  ).length;
-  const misconfCount = logs.filter(
-    (l) => l.incident_category === "misconfiguration"
-  ).length;
 
   // ---------- 중복 제거 ----------
   const dedupedLogs = (() => {
     const seen = new Set();
     return logs.filter((log) => {
       const key =
+        log.log_id ||
         log.id ||
         log.logId ||
-        log.log_id ||
-        `${log.log_detail || log.Log_Detail || ""}::${log.timestamp || ""}`;
+        `${log.log_detail ||
+          log.Log_Detail ||
+          log.redacted_log ||
+          ""}::${log.occurred_at || log.timestamp || ""}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
   })();
 
+  // ---------- 통계 계산 ----------
+  const total = summary?.total ?? dedupedLogs.length;
+  const highRisk =
+    summary?.high ?? dedupedLogs.filter((l) => l.risk === "High").length;
+  const learnQueue =
+    summary?.learnQueue ??
+    dedupedLogs.filter((l) => l.ai_learn_enabled && !l.ai_learn_completed)
+      .length;
+  const learned =
+    summary?.learned ?? dedupedLogs.filter((l) => l.ai_learn_completed).length;
+
+  const piiCases =
+    summary?.piiCases ?? dedupedLogs.filter((l) => l.pii_regex_found).length;
+
+  const exfilCount =
+    summary?.exfilCount ??
+    dedupedLogs.filter((l) => l.incident_category === "exfiltration").length;
+  const credCount =
+    summary?.credCount ??
+    dedupedLogs.filter((l) => l.incident_category === "credential_abuse")
+      .length;
+  const misconfCount =
+    summary?.misconfCount ??
+    dedupedLogs.filter((l) => l.incident_category === "misconfiguration")
+      .length;
+
   // ---------- 필터 ----------
   const filteredLogs = dedupedLogs.filter((log) => {
+    // Garbage 숨기기 옵션 적용
+    if (hideGarbage && log.is_garbage) return false;
+
     if (selectedRisk !== "ALL" && log.risk !== selectedRisk) return false;
     if (
       selectedCategory !== "ALL" &&
@@ -259,8 +351,8 @@ function App() {
       <header className="app-header">
         <h1>AI 기반 개인정보 유출 탐지 및 자동 학습 파이프라인</h1>
         <p className="app-subtitle">
-          실시간 로그 수집부터 정규식 탐지, 위험도 분석, 학습 큐 관리, 학습 완료까지
-          전 과정 자동화합니다.
+          실시간 로그 수집부터 정규식 탐지, 위험도 분석, 학습 큐 관리, 학습
+          완료까지 전 과정 자동화합니다.
           <br />
           고위험·비PII 로그만 선별 학습하여 보안 인시던트 대응 AI를 지속적으로
           진화시킵니다.
@@ -290,7 +382,7 @@ function App() {
         </div>
       </section>
 
-      {/* 상단 통계 */}
+      {/* 상단 통계 카드 (위험도/학습/PII) */}
       <section className="stats-section">
         <div className="stat-card">
           <div className="stat-label">전체 로그</div>
@@ -323,6 +415,53 @@ function App() {
         <div className="stat-card">
           <div className="stat-label">설정 오류</div>
           <div className="stat-value">{misconfCount}</div>
+        </div>
+      </section>
+
+      {/* 운영 메트릭 카드 */}
+      <section className="metrics-section">
+        <div className="stat-card">
+          <div className="stat-label">
+            최근 {metrics.windowMinutes}분 처리 로그
+          </div>
+          <div className="stat-value">
+            {metrics.totalLast ?? "-"}
+          </div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-label">최근 고위험 로그</div>
+          <div className="stat-value">
+            {metrics.highLast ?? "-"}
+          </div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-label">Raw Queue 대기</div>
+          <div className="stat-value">
+            {metrics.queuePending ?? "-"}
+          </div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-label">최근 Garbage 로그</div>
+          <div className="stat-value">
+            {metrics.garbageCount ?? "-"}
+          </div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-label">평균 처리 시간 (ms)</div>
+          <div className="stat-value">
+            {metrics.avgProcessingMs ?? "-"}
+          </div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-label">최근 학습 완료 건수</div>
+          <div className="stat-value">
+            {metrics.learnedLast ?? "-"}
+          </div>
         </div>
       </section>
 
@@ -361,6 +500,23 @@ function App() {
             </button>
           ))}
         </div>
+
+        {/* Garbage 토글 */}
+        <div className="filter-group">
+          <span className="filter-label">Garbage:</span>
+          <button
+            className={hideGarbage ? "filter-btn active" : "filter-btn"}
+            onClick={() => setHideGarbage(true)}
+          >
+            숨기기
+          </button>
+          <button
+            className={!hideGarbage ? "filter-btn active" : "filter-btn"}
+            onClick={() => setHideGarbage(false)}
+          >
+            같이 보기
+          </button>
+        </div>
       </section>
 
       {/* 테이블 */}
@@ -393,13 +549,19 @@ function App() {
               <tbody>
                 {[...filteredLogs]
                   .sort((a, b) => {
-                    const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-                    const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+                    const ta = new Date(
+                      a.occurred_at || a.timestamp || a.created_at || 0
+                    ).getTime();
+                    const tb = new Date(
+                      b.occurred_at || b.timestamp || b.created_at || 0
+                    ).getTime();
                     return tb - ta;
                   })
                   .slice(0, 200)
                   .map((log) => {
-                    const rowId = log.id || log.logId || log.log_id || log.timestamp;
+                    const rowId =
+                      log.log_id || log.id || log.logId || log.occurred_at;
+
                     return (
                       <React.Fragment key={rowId}>
                         <tr
@@ -418,64 +580,99 @@ function App() {
                           <td>{log.incident_category || "-"}</td>
                           <td>{renderLearnProgress(log)}</td>
                           <td className="col-summary">
-                            {log.summary || log.detail || "-"}
+                            {log.summary ||
+                              log.text ||
+                              log.detail ||
+                              log.pii_regex_summary ||
+                              "-"}
                           </td>
                           <td>
                             <span className="badge badge-source">
                               {log.source || "UNKNOWN"}
                             </span>
                           </td>
-                          <td>{formatTime(log.timestamp)}</td>
+                          <td>
+                            {formatTime(
+                              log.occurred_at ||
+                                log.timestamp ||
+                                log.created_at
+                            )}
+                          </td>
                           <td className="toggle-cell">
                             {openRowId === rowId ? "▲" : "▼"}
                           </td>
                         </tr>
+
                         {openRowId === rowId && (
                           <tr className="row-detail">
                             <td colSpan={7}>
                               <div className="detail-box">
-                                <div className="detail-row">
-                                  <span className="detail-label">
-                                    PII 탐지 요약
-                                  </span>
-                                  <span className="detail-value">
-                                    {log.pii_regex_summary ||
-                                      (log.pii_regex_found
-                                        ? "민감 PII 포함"
-                                        : "민감 PII 미탐지")}
-                                  </span>
+                                {/* 왼쪽: PII/이유/대응 */}
+                                <div className="detail-col-meta">
+                                  <div className="detail-row">
+                                    <span className="detail-label">
+                                      PII 탐지 요약
+                                    </span>
+                                    <span className="detail-value">
+                                      {log.pii_regex_summary ||
+                                        log.summary ||
+                                        log.text ||
+                                        (log.pii_regex_found
+                                          ? "민감 PII 포함"
+                                          : "민감 PII 미탐지")}
+                                    </span>
+                                  </div>
+                                  <div className="detail-row">
+                                    <span className="detail-label">
+                                      위험도 판단 이유
+                                    </span>
+                                    <span className="detail-value">
+                                      {log.risk_reason_l2 ||
+                                        log.risk_reason_l1 ||
+                                        "-"}
+                                    </span>
+                                  </div>
+                                  <div className="detail-row">
+                                    <span className="detail-label">
+                                      추천 대응
+                                    </span>
+                                    <span className="detail-value">
+                                      {log.recommendation_l2 ||
+                                        log.recommendation_l1 ||
+                                        log.recommendation ||
+                                        "-"}
+                                    </span>
+                                  </div>
+                                  <div className="detail-row">
+                                    <span className="detail-label">
+                                      Garbage 여부
+                                    </span>
+                                    <span className="detail-value">
+                                      {log.is_garbage
+                                        ? `Garbage (${
+                                            log.garbage_reason ||
+                                            "필터 규칙에 의해 제외된 로그"
+                                          })`
+                                        : "정상 로그"}
+                                    </span>
+                                  </div>
                                 </div>
-                                <div className="detail-row">
-                                  <span className="detail-label">
-                                    위험도 판단 이유
-                                  </span>
-                                  <span className="detail-value">
-                                    {log.risk_reason_l2 ||
-                                      log.risk_reason_l1 ||
-                                      log.detail ||
-                                      "-"}
-                                  </span>
-                                </div>
-                                <div className="detail-row">
-                                  <span className="detail-label">
-                                    추천 대응
-                                  </span>
-                                  <span className="detail-value">
-                                    {log.recommendation_l2 ||
-                                      log.recommendation ||
-                                      "-"}
-                                  </span>
-                                </div>
-                                <div className="detail-row detail-log-row">
-                                  <span className="detail-label">
-                                    로그 내용
-                                  </span>
-                                  <pre className="detail-log">
-                                    {log.log_detail ||
-                                      log.redactedLog ||
-                                      log.Log_Detail ||
-                                      "(로그 없음)"}
-                                  </pre>
+
+                                {/* 오른쪽: 로그 전문 */}
+                                <div className="detail-col-log">
+                                  <div className="detail-row detail-log-row">
+                                    <span className="detail-label detail-label-log">
+                                      로그 내용
+                                    </span>
+                                    <pre className="detail-log">
+                                      {log.log_detail ||
+                                        log.redacted_log ||
+                                        log.redactedLog ||
+                                        log.Log_Detail ||
+                                        log.text ||
+                                        "(로그 없음)"}
+                                    </pre>
+                                  </div>
                                 </div>
                               </div>
                             </td>

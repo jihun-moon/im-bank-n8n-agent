@@ -19,7 +19,7 @@ module.exports = {
     // --- 2. Backend ------------------------------------------------
     {
       name: "secureflow-backend",
-      script: "server.js",
+      script: "./server-sqlite.js",
       cwd: "./backend",
       watch: false,            // ❗ 로그 초기화 방지를 위해 watch 끔
       env: {

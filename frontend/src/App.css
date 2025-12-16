@@ -1,5 +1,5 @@
 /* =========================================================
-   🎯 SecureFlow Dashboard Style (Real-time Optimized)
+   🎯 SecureFlow Dashboard Style (Real-time + Metrics)
    ========================================================= */
 
 /* 전체 앱 기본 스타일 */
@@ -8,37 +8,37 @@
   background: #050816;
   color: #f9fafb;
   min-height: 100vh;
-  padding: 24px;
+  padding: 16px 20px;
   transition: background 0.3s ease;
 }
 
 /* 헤더 */
 .app-header {
-  margin-bottom: 24px;
+  margin-bottom: 16px;
 }
 .app-header h1 {
-  font-size: 24px;
-  margin-bottom: 8px;
+  font-size: 22px;
+  margin-bottom: 6px;
 }
 .app-subtitle {
-  font-size: 14px;
+  font-size: 13px;
   color: #9ca3af;
-  line-height: 1.5;
+  line-height: 1.4;
 }
 
 /* =========================================================
-   📊 상단 통계 카드 – 반응형
+   📊 상단 통계 카드 – 위험도/학습/PII
    ========================================================= */
 .stats-section {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
 }
 .stat-card {
   background: #111827;
   border-radius: 8px;
-  padding: 12px 16px;
+  padding: 10px 14px;
   border: 1px solid #1f2937;
   transition: transform 0.2s ease, border-color 0.3s ease;
 }
@@ -63,6 +63,16 @@
 }
 
 /* =========================================================
+   📈 운영 메트릭 카드
+   ========================================================= */
+.metrics-section {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+/* =========================================================
    ⚙️ 필터 / 컨트롤 영역
    ========================================================= */
 .controls-section {
@@ -70,7 +80,7 @@
   flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   gap: 8px;
 }
 .filter-group {
@@ -100,22 +110,9 @@
   border-color: #2563eb;
   box-shadow: 0 0 8px rgba(37, 99, 235, 0.5);
 }
-.refresh-btn {
-  border-radius: 999px;
-  border: 1px solid #4b5563;
-  padding: 4px 12px;
-  font-size: 12px;
-  background: #111827;
-  color: #e5e7eb;
-  cursor: pointer;
-  transition: background 0.2s ease;
-}
-.refresh-btn:hover {
-  background: #1f2937;
-}
 
 /* =========================================================
-   🧠 시뮬레이션 배너
+   🧠 실시간 배너
    ========================================================= */
 .sim-banner {
   display: flex;
@@ -125,7 +122,7 @@
   border-radius: 10px;
   border: 1px solid #1f2937;
   padding: 10px 14px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
   gap: 16px;
 }
 .sim-left {
@@ -154,8 +151,13 @@
   animation: blink 1s infinite ease-in-out;
 }
 @keyframes blink {
-  0%, 100% { opacity: 0.7; }
-  50% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 .sim-text-main {
   font-size: 13px;
@@ -189,13 +191,13 @@
    📋 로그 테이블
    ========================================================= */
 .table-section {
-  margin-top: 8px;
+  margin-top: 6px;
 }
 .table-header-row {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 .table-section h2 {
   font-size: 16px;
@@ -236,6 +238,27 @@
   color: #9ca3af;
 }
 
+/* 요약 칼럼 줄이기 */
+.col-summary {
+  max-width: 520px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 메인 행 패딩/보더 조정 */
+.row-main td {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.row-detail td {
+  padding: 0;
+  background: #020617;
+}
+.row-main.row-open td {
+  border-bottom: none; /* 상세 박스랑 이중 보더 방지 */
+}
+
 /* =========================================================
    🧩 학습 상태 Progress
    ========================================================= */
@@ -265,55 +288,114 @@
   background: linear-gradient(90deg, #22c55e, #4ade80);
 }
 @keyframes progress-pulse {
-  0% { opacity: 0.6; }
-  50% { opacity: 1; }
-  100% { opacity: 0.6; }
+  0% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.6;
+  }
 }
 
 /* =========================================================
-   🧾 아코디언 (서랍 상세)
+   🧾 아코디언 (서랍 상세) - 2단 구성
    ========================================================= */
-.row-main { cursor: pointer; transition: background 0.2s ease; }
-.row-main:hover { background: rgba(148,163,184,0.08); }
-.row-open { background: rgba(148,163,184,0.12); }
+.row-main {
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+.row-main:hover {
+  background: rgba(148, 163, 184, 0.08);
+}
+.row-open {
+  background: rgba(148, 163, 184, 0.12);
+}
+
+/* 상세 박스: 좌/우 2컬럼 */
 .detail-box {
-  padding: 10px 12px 14px;
-  background: rgba(15,23,42,0.9);
+  padding: 10px 12px;
+  background: rgba(15, 23, 42, 0.9);
   border-radius: 10px;
-  border: 1px solid rgba(148,163,184,0.25);
+  border: 1px solid rgba(148, 163, 184, 0.25);
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  flex-direction: row;
+  gap: 16px;
   animation: fadeIn 0.3s ease;
 }
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(-3px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
+
+/* 왼쪽: 메타(PII 요약 / 이유 / 대응) */
+.detail-col-meta {
+  flex: 1.1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  padding: 8px 10px;
+  background: rgba(15, 23, 42, 0.95);
+  border-radius: 6px;
+  border: 1px solid #1f2937;
+}
+
+/* 오른쪽: 로그 전문 */
+.detail-col-log {
+  flex: 1.4;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 라벨/값 한 줄 */
 .detail-row {
   display: flex;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 6px;
   font-size: 12px;
+  line-height: 1.4;
 }
 .detail-label {
-  flex: 0 0 120px;
+  flex: 0 0 90px;
   color: #9ca3af;
+  font-size: 11px;
+  margin-top: 1px;
+}
+.detail-label-log {
+  flex: 0 0 auto;
+  margin-bottom: 4px;
 }
 .detail-value {
   flex: 1;
   color: #e5e7eb;
+  word-break: break-all;
+}
+
+/* 로그 전문 */
+.detail-log-row {
+  flex-direction: column;
 }
 .detail-log {
-  margin-top: 4px;
+  margin-top: 0;
   padding: 8px 10px;
-  background: rgba(15,23,42,0.95);
+  background: rgba(15, 23, 42, 0.95);
   border-radius: 6px;
   font-size: 11px;
   line-height: 1.4;
-  max-height: 200px;
+  max-height: 110px;
   overflow: auto;
   white-space: pre-wrap;
+  border: 1px solid #1f2937;
 }
+
 .toggle-cell {
   text-align: center;
   color: #9ca3af;
@@ -329,13 +411,34 @@
   border-radius: 999px;
   font-size: 11px;
 }
-.badge-high { background: #b91c1c; color: #fff; }
-.badge-medium { background: #ea580c; color: #fff; }
-.badge-safe { background: #16a34a; color: #fff; }
-.badge-queue { background: #0ea5e9; color: #fff; }
-.badge-learned { background: #7c3aed; color: #fff; }
-.badge-default { background: #4b5563; color: #fff; }
-.badge-source { background: rgba(55,65,81,0.7); color: #e5e7eb; }
+.badge-high {
+  background: #b91c1c;
+  color: #fff;
+}
+.badge-medium {
+  background: #ea580c;
+  color: #fff;
+}
+.badge-safe {
+  background: #16a34a;
+  color: #fff;
+}
+.badge-queue {
+  background: #0ea5e9;
+  color: #fff;
+}
+.badge-learned {
+  background: #7c3aed;
+  color: #fff;
+}
+.badge-default {
+  background: #4b5563;
+  color: #fff;
+}
+.badge-source {
+  background: rgba(55, 65, 81, 0.7);
+  color: #e5e7eb;
+}
 
 /* =========================================================
    💡 실시간 효과 (SSE용)
@@ -344,13 +447,22 @@
   animation: glowFlash 0.8s ease-in-out;
 }
 @keyframes glowFlash {
-  0% { box-shadow: inset 0 0 60px rgba(59,130,246,0.3); }
-  100% { box-shadow: inset 0 0 0 rgba(59,130,246,0); }
+  0% {
+    box-shadow: inset 0 0 60px rgba(59, 130, 246, 0.3);
+  }
+  100% {
+    box-shadow: inset 0 0 0 rgba(59, 130, 246, 0);
+  }
 }
 .glow-border {
-  box-shadow: 0 0 4px rgba(59,130,246,0.25);
+  box-shadow: 0 0 4px rgba(59, 130, 246, 0.25);
 }
 @keyframes glowPulse {
-  0%,100% { box-shadow: 0 0 6px rgba(59,130,246,0.2); }
-  50% { box-shadow: 0 0 14px rgba(59,130,246,0.6); }
+  0%,
+  100% {
+    box-shadow: 0 0 6px rgba(59, 130, 246, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 14px rgba(59, 130, 246, 0.6);
+  }
 }
