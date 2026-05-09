@@ -1,10 +1,24 @@
-# 🧠 AIM SECURITYFLOW
+<h1 align="center">🧠 AIM SECURITYFLOW</h1>
 
-### **Aim the Security of Finance**
+<p align="center"><strong><em>Aim the Security of Finance</em></strong></p>
+<p align="center"><strong>AI 기반 금융 보안 로그 자율 분석·학습 파이프라인</strong></p>
 
-### **AI 기반 금융 보안 로그 자율 분석·학습 파이프라인**
+<p align="center">
+  <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square"/>
+  <img src="https://img.shields.io/badge/n8n-EA4B71?style=flat-square&logo=n8n&logoColor=white"/>
+  <img src="https://img.shields.io/badge/Node.js-339933?style=flat-square&logo=node.js&logoColor=white"/>
+  <img src="https://img.shields.io/badge/Upstage_Solar-7C3AED?style=flat-square"/>
+  <img src="https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white"/>
+  <img src="https://img.shields.io/badge/SSE-Real--time-FF6B6B?style=flat-square"/>
+  <img src="https://img.shields.io/badge/Self--Healing-✓-success?style=flat-square"/>
+  <a href="https://www.notion.so/My-Knowledge-Hub-27772d9f979f80569662de9c2e49399d?source=copy_link"><img src="https://img.shields.io/badge/Deep_Dive-Notion-000000?style=flat-square&logo=notion&logoColor=white"/></a>
+</p>
 
-**2025 AI Agent 해커톤 출품작 – AIM 팀(AI + IM)**
+<p align="center">
+  <sub><strong>2025 AI Agent 해커톤 출품작</strong> · AIM 팀 (AI + IM)</sub>
+</p>
+
+---
 
 SecureFlow는 금융·기업 환경의 방대한 보안 로그를
 **AI가 스스로 수집 → 분석 → 판단 → 학습 → 대응**하는
