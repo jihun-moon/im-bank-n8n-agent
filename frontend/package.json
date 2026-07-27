@@ -8,10 +8,10 @@
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "chart.js": "^4.5.1",
-    "react": "^19.2.6",
+    "react": "^19.2.8",
     "react-chartjs-2": "^5.3.1",
-    "react-dom": "^19.2.6",
-    "recharts": "^3.8.1",
+    "react-dom": "^19.2.8",
+    "recharts": "^3.10.1",
     "web-vitals": "^5.2.0"
   },
   "scripts": {
