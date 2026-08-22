@@ -557,11 +557,12 @@ app.post("/api/logs", (req, res) => {
     broadcast({ type: "log", payload: saved });
   }
 
-  console.log(
-    `[LOG UPSERT] ${safeLog(row.log_id)} | ${safeLog(row.risk)} | ${safeLog(
-      row.title || ""
-    )}`
-  );
+  // CodeQL 은 safeLog 안의 치환을 새니타이저로 인정하지 않는다.
+  // 로그로 나가기 직전에 개행을 한 번 더 편다.
+  const upsertId = safeLog(row.log_id).replace(/\n/g, " ").replace(/\r/g, " ");
+  const upsertRisk = safeLog(row.risk).replace(/\n/g, " ").replace(/\r/g, " ");
+  const upsertTitle = safeLog(row.title || "").replace(/\n/g, " ").replace(/\r/g, " ");
+  console.log(`[LOG UPSERT] ${upsertId} | ${upsertRisk} | ${upsertTitle}`);
 
   return res.json({ ok: true, log: saved, summary: getSummary() });
 });
@@ -693,7 +694,9 @@ app.put("/api/logs/:id", (req, res) => {
     broadcast({ type: "log", payload: saved });
   }
 
-  console.log("[LOG UPDATE] %s ←", safeLog(id), safeLog(body));
+  const updateId = safeLog(id).replace(/\n/g, " ").replace(/\r/g, " ");
+  const updateBody = safeLog(body).replace(/\n/g, " ").replace(/\r/g, " ");
+  console.log("[LOG UPDATE] %s ← %s", updateId, updateBody);
 
   res.json({ ok: true, log: saved, summary: getSummary() });
 });
@@ -779,10 +782,11 @@ app.patch("/api/logs/:id/learn-complete", (req, res) => {
     broadcast({ type: "log", payload: saved });
   }
 
+  const learnId = safeLog(patch.log_id).replace(/\n/g, " ").replace(/\r/g, " ");
+  const learnEnabled = safeLog(patch.ai_learn_enabled).replace(/\n/g, " ").replace(/\r/g, " ");
+  const learnDone = safeLog(patch.ai_learn_completed).replace(/\n/g, " ").replace(/\r/g, " ");
   console.log(
-    `[LEARN COMPLETE] ${safeLog(patch.log_id)} : enabled=${safeLog(
-      patch.ai_learn_enabled
-    )}, completed=${safeLog(patch.ai_learn_completed)}`
+    `[LEARN COMPLETE] ${learnId} : enabled=${learnEnabled}, completed=${learnDone}`
   );
 
   res.json({ ok: true, log: saved, summary: getSummary() });
@@ -814,10 +818,10 @@ function handleAddKb(req, res) {
 
   const info = stmtInsertKb.run(row);
 
+  const kbRisk = safeLog(row.risk || "?").replace(/\n/g, " ").replace(/\r/g, " ");
+  const kbLog = safeLog(row.log_id || "N/A").replace(/\n/g, " ").replace(/\r/g, " ");
   console.log(
-    `[KB ADD] id=${info.lastInsertRowid}, risk=${safeLog(
-      row.risk || "?"
-    )}, log=${safeLog(row.log_id || "N/A")}`
+    `[KB ADD] id=${info.lastInsertRowid}, risk=${kbRisk}, log=${kbLog}`
   );
 
   res.json({ ok: true, id: info.lastInsertRowid });
