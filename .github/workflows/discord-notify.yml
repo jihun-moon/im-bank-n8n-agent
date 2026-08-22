@@ -45,6 +45,7 @@ jobs:
             -d "$payload" "$WEBHOOK")
           echo "Discord HTTP: $http"
           if [ "$http" != "204" ] && [ "$http" != "200" ]; then
-            cat /tmp/disc_resp
-            exit 1
+            # 알림 실패로 빌드를 깨뜨리지 않는다. 웹훅을 지우거나 갱신하면 흔한 일이다.
+            echo "::warning::Discord 알림 실패 (HTTP $http). 웹훅이 유효하지 않을 수 있다. 빌드는 계속한다."
+            cat /tmp/disc_resp || true
           fi
