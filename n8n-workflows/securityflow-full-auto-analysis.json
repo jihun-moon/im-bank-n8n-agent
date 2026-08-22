@@ -1,0 +1,983 @@
+{
+  "name": "SecurityFlow - Full Auto Analysis (Demo)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "a94e54c8-4572-4c2e-afe7-138eb57ddb63",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1072,
+        -1136
+      ],
+      "id": "a6240fab-0ec0-44e4-b3e3-7a444f94d855",
+      "name": "보안 로그 수집 Webhook",
+      "webhookId": "a94e54c8-4572-4c2e-afe7-138eb57ddb63"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// [입력] $json.Log_Detail 에 전체 로그 텍스트가 들어있음\n\nlet raw = $json.Log_Detail || '';\n\nif (typeof raw !== 'string') {\n  try {\n    raw = JSON.stringify(raw);\n  } catch {\n    raw = String(raw);\n  }\n}\n\nlet masked = String(raw);\n\n// 민감 PII 및 IP 마스킹 패턴\nmasked = masked\n  // 이메일\n  .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}/g, '[EMAIL]')\n  // 전화번호\n  .replace(/\\b0\\d{1,2}-?\\d{3,4}-?\\d{4}\\b/g, '[PHONE]')\n  // 주민등록번호\n  .replace(/\\b\\d{6}[- ]?\\d{7}\\b/g, '[RRN]')\n  // 카드번호\n  .replace(/\\b(?:\\d[ -]*?){13,16}\\b/g, '[CARD]')\n  // IP 주소\n  .replace(/\\b\\d{1,3}(?:\\.\\d{1,3}){3}\\b/g, '[IP]');\n\n// 대시보드용 짧은 스니펫 (예: 400자 제한)\nconst MAX_LEN = 400;\nlet snippet = masked;\n\nif (snippet.length > MAX_LEN) {\n  snippet = snippet.slice(0, MAX_LEN) + ' ...[생략됨]';\n}\n\n// 정책:\n// - 원본은 meta.extra.body.raw_log 에 이미 들어있으니 그대로 두고,\n// - 대시보드/백엔드에서는 마스킹된 버전을 사용하도록 별도 필드로 저장.\nreturn {\n  ...$json,\n  redactedLog: masked,        // 전체 마스킹 버전\n  redactedSnippet: snippet    // 잘린 미리보기 버전\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2592,
+        -1136
+      ],
+      "id": "be2435df-92c7-4493-aaa1-e4b35f0c0f61",
+      "name": "원본 로그 마스킹 및 삭제1"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// [입력] 전 노드에서 온 표준 스키마\n//   - $json.Log_Detail 에 전체 로그 텍스트가 들어있음\n\nlet text = $json.Log_Detail || '';\n\nif (typeof text !== 'string') {\n  try {\n    text = JSON.stringify(text);\n  } catch {\n    text = String(text);\n  }\n}\n\ntext = String(text);\n\n// 공백뿐이면 PII 없음으로 처리\nif (!text.trim().length) {\n  return {\n    ...$json,\n    pii_regex_hits: 0,          // 이메일/전화/주민/카드 기준\n    pii_regex_types: [],\n    pii_regex_found: false,\n    pii_regex_summary: '정규식 기준 민감 PII 패턴 미탐지',\n    ip_hits: 0,\n    ip_found: false\n  };\n}\n\n// 1) \"민감 PII\" 패턴들 (학습 금지/경고 기준)\nconst piiPatterns = {\n  EMAIL: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}/g,\n  PHONE: /\\b0\\d{1,2}-?\\d{3,4}-?\\d{4}\\b/g,          // 휴대폰/전화번호\n  RRN: /\\b\\d{6}[- ]?\\d{7}\\b/g,                    // 주민번호(6-7)\n  CARD: /\\b(?:\\d[ -]*?){13,16}\\b/g                // 카드번호(13~16자리)\n};\n\n// 2) IP는 별도 카운트 (민감 PII 판단에는 포함 안 함)\nconst ipRegex = /\\b\\d{1,3}(?:\\.\\d{1,3}){3}\\b/g;\n\nconst counts = {};\nlet totalSensitiveHits = 0;\n\n// 민감 PII 패턴 매칭\nfor (const [type, regex] of Object.entries(piiPatterns)) {\n  const matches = text.match(regex);\n  const count = matches ? matches.length : 0;\n  counts[type] = count;\n  totalSensitiveHits += count;\n}\n\n// 실제로 하나라도 잡힌 민감 PII 타입만 리스트로\nconst hitTypes = Object.entries(counts)\n  .filter(([, c]) => c > 0)\n  .map(([t]) => t);\n\nconst piiFound = totalSensitiveHits > 0;\n\n// IP는 별도 계산\nconst ipMatches = text.match(ipRegex);\nconst ipCount = ipMatches ? ipMatches.length : 0;\nconst ipFound = ipCount > 0;\n\n// 사람 눈에 보이는 요약 문자열 생성\nlet summary = '정규식 기준 민감 PII 패턴 미탐지';\n\nif (piiFound) {\n  const parts = [];\n\n  if (counts.EMAIL) parts.push(`이메일 ${counts.EMAIL}건`);\n  if (counts.PHONE) parts.push(`전화번호 ${counts.PHONE}건`);\n  if (counts.RRN)   parts.push(`주민등록번호 패턴 ${counts.RRN}건`);\n  if (counts.CARD)  parts.push(`카드번호 패턴 ${counts.CARD}건`);\n\n  summary = parts.join(', ') + ' 탐지됨 (정규식 기준).';\n\n  if (ipFound) {\n    summary += ` IP 주소 ${ipCount}건도 포함되어 있습니다.`;\n  }\n} else if (ipFound) {\n  // 민감 PII는 없고, IP만 있는 케이스\n  summary = `민감 PII는 없고, IP 주소 ${ipCount}건만 탐지됨 (정규식 기준).`;\n}\n\n// 기존 필드는 그대로 두고, PII/IP 관련 필드만 추가해서 반환\nreturn {\n  ...$json,\n  pii_regex_hits: totalSensitiveHits,  // 이메일/전화/주민/카드 기준 총합\n  pii_regex_types: hitTypes,          // 이메일/전화/주민/카드 중 실제 발견된 타입들\n  pii_regex_found: piiFound,          // \"민감 PII\"가 하나라도 있으면 true\n  pii_regex_summary: summary,         // 사람 읽기용 요약\n  ip_hits: ipCount,                   // IP 주소 매칭 수\n  ip_found: ipFound                   // IP 존재 여부\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        -1136
+      ],
+      "id": "bfce496c-ceb3-4ccb-bbdc-e1a957f14239",
+      "name": "PII 정규식 사전 탐지"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "536e00fe-9d5e-4bc9-a22e-ff61cfc052e5",
+              "leftValue": "={{ $('HTTP Payload 준비 Code 노드').item.json.ai_learn_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        912,
+        112
+      ],
+      "id": "c9e3af7c-19e0-4dac-87ef-bab43001e758",
+      "name": "IF - 학습 대상인가?",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Webhook로 들어오는 JSON 구조를 최대한 통일해서\n// 뒤 노드들이 항상 동일한 필드만 보게 만드는 전처리 노드입니다.\n\n// 1) body 위치 통합 (Postman / 실제 센서 모두 대응)\nconst body =\n  $json.body ||                 // 일반적인 webhook body (테스트 시)\n  $json.meta?.extra?.body ||    // n8n 테스트에서 meta.extra.body 로 들어온 경우\n  {};\n\n// 2) 원본 로그 문자열 추출\nlet raw =\n  body.raw_log ||\n  $json.raw_log ||\n  $json.message ||\n  $json.log ||\n  '';\n\n// 혹시 객체로 온 경우 문자열로 변환\nif (raw && typeof raw !== 'string') {\n  try {\n    raw = JSON.stringify(raw);\n  } catch {\n    raw = String(raw);\n  }\n}\n\n// 그래도 비어 있으면 body 전체를 fallback으로 사용\nif (!raw || String(raw).trim().length === 0) {\n  const fallbackSource = Object.keys(body).length ? body : $json;\n  try {\n    raw = JSON.stringify(fallbackSource);\n  } catch {\n    raw = String(fallbackSource);\n  }\n}\n\n// 3) 공통 필드 정규화 (system / time / IP / user_id 등)\n\n// 🔥 시스템 코드 (내부용 식별자: CHAT_LOG / FILE_SERVER ...)\nconst systemCode =\n  body.system ||\n  $json.system ||\n  'UNKNOWN';\n\n// 🔥 출처 라벨 (사람이 보는 이름: 메신저/채팅 로그, 파일 서버 등)\nlet sourceLabel =\n  body.source ||        // 랜덤 인시던트 제너레이터에서 넣어주는 한국어 라벨\n  $json.source ||       // 다른 시스템에서 이미 내려준 라벨\n  systemCode ||         // 그래도 없으면 system 코드라도 사용\n  'UNKNOWN';\n\nlet time =\n  body.time ||\n  $json.time ||\n  $json.timestamp ||\n  new Date().toISOString();   // UTC 기준\n\n// 가능하면 ISO 형식으로 통일 (파싱 실패하면 원본 유지)\ntry {\n  const d = new Date(time);\n  if (!isNaN(d.getTime())) {\n    time = d.toISOString();\n  }\n} catch {\n  // 그냥 원본 time 사용\n}\n\nconst clientIp =\n  body.client_ip ||\n  $json.client_ip ||\n  $json.ip ||\n  '';\n\nconst userId =\n  body.user_id ||\n  $json.user_id ||\n  '';\n\nconst userAgent =\n  body.user_agent ||\n  $json.user_agent ||\n  $json.headers?.['user-agent'] ||\n  '';\n\nconst destIp =\n  body.dest_ip ||\n  $json.dest_ip ||\n  '';\n\nconst eventType =\n  body.event_type ||\n  $json.event_type ||\n  body.action ||\n  $json.action ||\n  '';\n\n// 4) 표준화된 구조로 반환\n//    이후 모든 노드는 이 스키마만 신뢰하면 됨.\nreturn {\n  // AI / 백엔드 / 대시보드가 함께 쓰는 공통 필드\n  Log_Detail: raw,       // 원본 로그 한 줄(또는 한 이벤트, 마스킹 전)\n  system: systemCode,    // 내부 코드 (예: CHAT_LOG)\n  source: sourceLabel,   // UI용 라벨 (예: 메신저/채팅 로그)\n  timestamp: time,       // 발생 시각(UTC ISO 문자열)\n  occurred_at: time,     // 나중 단계에서 그대로 써도 되게 한 번 더 복사\n\n  meta: {\n    source_ip: clientIp,\n    dest_ip: destIp,\n    user_id: userId,\n    event_type: eventType,\n    user_agent: userAgent,\n\n    // extra에는 webhook으로 들어온 전체 원본 JSON을 그대로 보존\n    // (디버깅 / 상세 분석용)\n    extra: $json\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        -1136
+      ],
+      "id": "2658f25c-03df-4914-ae37-654a948fce76",
+      "name": "Code: Webhook 전처리"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// [입력] 이전 노드에서 온 표준 스키마\n// - $json.Log_Detail : 전체 로그 텍스트\n// - $json.pii_regex_found : 정규식 기준 민감 PII 존재 여부\n\nlet text = $json.Log_Detail || '';\nif (typeof text !== 'string') {\n  try {\n    text = JSON.stringify(text);\n  } catch {\n    text = String(text);\n  }\n}\ntext = String(text);\n\n// 민감 PII 여부 (정규식 기준)\nconst hasSensitivePII = !!$json.pii_regex_found;\n\n// 공격/유출 관련 키워드들 (룰 기반)\nconst hasErrorWord = /\\b(ERROR|ALERT|FAIL|EXCEPTION|CRITICAL|WARN|WARNING)\\b/i.test(text);\nconst hasLeakWord  = /(backup|dump|export|upload|download|ftp|s3|csv|client[_ ]?list|유출|백업|내보내기|메일|gmail|naver\\.com|daum\\.net)/i.test(text);\nconst hasAuthWord  = /(login failed|unauthorized|권한 없음|인증 실패|비인가)/i.test(text);\n\nlet risk = 'Safe';\nlet reason = '특별한 이상 징후 없음 (룰 기반).';\n\n// 1) 민감 PII 포함이면 무조건 High\nif (hasSensitivePII) {\n  risk = 'High';\n  reason = '민감 PII(이메일/전화/주민번호/카드번호 등)가 포함된 로그로 판단됨.';\n}\n// 2) PII는 없지만, 유출/백업 + 에러/경고 키워드 조합\nelse if (hasLeakWord && (hasErrorWord || hasAuthWord)) {\n  risk = 'High';\n  reason = '데이터 유출/백업 관련 키워드와 에러/인증 실패가 함께 발견됨.';\n}\n// 3) PII는 없고, 유출/공격/오류 키워드 단독\nelse if (hasLeakWord || hasErrorWord || hasAuthWord) {\n  risk = 'Medium';\n  reason = '데이터 유출/공격/오류 관련 키워드가 포함되어 있음.';\n}\n// 4) 나머지는 Safe\nelse {\n  risk = 'Safe';\n  reason = '알려진 위험 패턴이나 민감 PII가 포함되지 않은 일반 로그.';\n}\n\n// 위험도에 따른 대응 추천 (데모용)\nlet recommendation = '모니터링만 진행 (데모용 기본 추천).';\n\nif (risk === 'High') {\n  recommendation = '즉시 보안팀 통보, 관련 계정/시스템 접근 차단 검토.';\n} else if (risk === 'Medium') {\n  recommendation = '보안 담당자 검토 및 필요 시 규칙/정책 강화.';\n} else if (risk === 'Safe') {\n  recommendation = '추가 조치 불필요, 일반 로그로 분류.';\n}\n\n// 나중에 LLM을 붙여도 interface 맞추기 좋게 필드 이름 설계\nconst botRisk = risk;  // 이걸 기준으로 뒤에서 학습 여부 결정\n\nreturn {\n  ...$json,\n  risk_1st: risk,\n  risk_reason_1st: reason,\n  recommendation_1st: recommendation,\n  botRisk,             // 최종 위험도(현재는 룰 기반)\n  bot_risk_final: risk // 나중에 L1+L2 merge 후에도 쓸 수 있게\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        768,
+        -1136
+      ],
+      "id": "da4061c3-2f0d-4ded-ab29-c6d7e1aaec47",
+      "name": "Fake AI Risk (Demo) Code"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 학습 대상 여부 계산 Code 노드 (업데이트 버전)\n\n// 1단계 위험도 (룰 기반)\nconst risk_l1 = $json.botRisk || $json.risk_1st || 'Safe';\n\n// 2단계 위험도 (LLM) – 아직 없으면 null\nconst risk_l2 = $json.risk_2nd || null;\n\n// 최종 위험도: L2가 있으면 우선 사용\nconst finalRisk =\n  risk_l2 && risk_l2 !== 'Unknown'\n    ? risk_l2\n    : risk_l1;\n\n// High / Medium 이상이면 \"위험한 로그\"로 간주\nconst isRisky =\n  finalRisk === 'High' || finalRisk === 'Medium';\n\n// 정규식 / (나중에 LLM PII까지) 기준으로 PII가 없는지\nconst piiByRegex = !!$json.pii_regex_found;\nconst piiByLLM1 = !!$json.pii_found_1st;  // 1차 LLM이 PII 찾으면 여기에\nconst noPII = !piiByRegex && !piiByLLM1;\n\n// 최종 학습 대상 여부\nconst ai_learn_enabled = isRisky && noPII;\n\nreturn {\n  ...$json,\n  final_risk_for_learning: finalRisk,  // 디버깅용\n  ai_learn_enabled\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        -1136
+      ],
+      "id": "72141c78-c2cb-4664-93e1-09a686aae890",
+      "name": "학습 대상 여부 계산 Code 노드"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// n8n → 백엔드로 보낼 최종 JSON 페이로드를 정리하는 노드입니다.\n\n// 백엔드와 동일한 형식의 ID 생성 (없으면 새로 생성)\nfunction makeLogId() {\n  const rand = Math.floor(Math.random() * 1000)\n    .toString()\n    .padStart(3, \"0\");\n  return `LOG-${Date.now()}-${rand}`;\n}\n\nconst id = $json.id || makeLogId();\n\n// 🔥 최종 위험도 (L2 병합 결과 우선)\nconst risk =\n  $json.bot_risk_final ||\n  $json.botRisk ||\n  $json.risk_l2 ||\n  $json.risk_1st ||\n  \"Safe\";\n\n// 요약: PII 요약 그대로 사용\nconst piiSummary = $json.pii_regex_summary || \"PII 탐지 정보 없음\";\n\n// 상세 이유: L2 → L1 → 기존 필드 순서로 우선 사용\nconst riskReason =\n  $json.risk_reason_l2 ||\n  $json.risk_reason_l1 ||\n  $json.risk_reason_1st ||\n  \"\";\n\n// 추천 대응: L2 → L1 → 기존 필드 순서로 우선 사용\nconst recommendation =\n  $json.recommendation_l2 ||\n  $json.recommendation_l1 ||\n  $json.recommendation_1st ||\n  \"\";\n\n// 출처(source)\nlet source =\n  $json.source ||\n  ($json.body && $json.body.source) ||\n  ($json.body && $json.body.system) ||\n  $json.system ||\n  \"UNKNOWN\";\n\nconst timestamp = $json.timestamp || new Date().toISOString();\n\n// 대시보드에 보여줄 로그 내용은 마스킹된 버전 우선\nconst logForDisplay = $json.redactedLog || $json.Log_Detail || \"(로그 없음)\";\n\n// 상태값 (학습 후보 / 일반 로그 등)\nlet status = \"일반 로그\";\nif ($json.ai_learn_enabled === true) {\n  status = \"학습 후보\";\n}\nif ($json.ai_learn_completed === true) {\n  status = \"학습 완료\";\n}\n\n// 카테고리 (최종 + L1/L2)\nconst incidentCategoryFinal = $json.incident_category || \"monitoring\";\nconst incidentCategoryL1 = $json.incident_category_l1 || incidentCategoryFinal;\nconst incidentCategoryL2 = $json.incident_category_l2 || incidentCategoryFinal;\n\n// 백엔드로 보낼 페이로드 구성\nconst backendPayload = {\n  id,\n  risk,                         // ✅ 최종 위험도\n  summary: piiSummary,          // PII 요약\n  detail: riskReason,           // 최종 위험도 이유\n  recommendation,               // 최종 추천 대응\n\n  // L1 / L2 정보도 같이 보냄 (대시보드/분석용)\n  risk_l1: $json.risk_l1 || null,\n  risk_l2: $json.risk_l2 || null,\n  risk_reason_l1: $json.risk_reason_l1 || null,\n  risk_reason_l2: $json.risk_reason_l2 || null,\n  recommendation_l1: $json.recommendation_l1 || null,\n  recommendation_l2: $json.recommendation_l2 || null,\n\n  action: null,\n  source,\n  log_detail: logForDisplay,\n  timestamp,\n\n  // PII / IP 정보\n  pii_regex_found: $json.pii_regex_found || false,\n  pii_regex_types: $json.pii_regex_types || [],\n  pii_regex_summary: piiSummary,\n  ip_found: $json.ip_found || false,\n  ip_hits: $json.ip_hits || 0,\n\n  // 학습 상태\n  ai_learn_enabled: $json.ai_learn_enabled === true,\n  ai_learn_completed: $json.ai_learn_completed === true,\n  status,\n\n  // 인시던트 유형\n  incident_category: incidentCategoryFinal,\n  incident_category_l1: incidentCategoryL1,\n  incident_category_l2: incidentCategoryL2,\n};\n\nreturn {\n  ...$json,\n  id,\n  backendPayload,\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -144,
+        -528
+      ],
+      "id": "dd00affd-796e-4af2-abe1-5e2a61333f70",
+      "name": "HTTP Payload 준비 Code 노드",
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 🔥 기준 데이터는 \"HTTP Payload 준비 Code 노드\" 출력으로 고정\nconst base = $item(0).$node[\"HTTP Payload 준비 Code 노드\"].json;\n\n// 1) 기본 메타 정보\nconst id = base.id || 'UNKNOWN_ID';\n\nconst risk =\n  base.bot_risk_final ||\n  base.backendPayload?.risk ||\n  base.risk_l2 ||\n  base.risk_l1 ||\n  base.risk_1st ||\n  'Unknown';\n\nconst source = base.source || base.system || 'UNKNOWN';\n\nconst timestamp = base.timestamp || new Date().toISOString();\n\nconst piiSummary = base.pii_regex_summary || '민감 PII 미탐지';\n\nconst riskReason =\n  base.risk_reason_l2 ||\n  base.risk_reason_l1 ||\n  base.risk_reason_1st ||\n  '(위험도 판단 이유 없음)';\n\nconst recommendation =\n  base.recommendation_l2 ||\n  base.recommendation_l1 ||\n  base.recommendation_1st ||\n  '(추천 대응 없음)';\n\nconst srcIp = base.meta?.source_ip || '';\nconst userId = base.meta?.user_id || '';\n\nconst redactedLog =\n  base.redactedLog ||\n  base.backendPayload?.log_detail ||\n  base.log_detail ||\n  base.Log_Detail ||\n  '(로그 없음)';\n\n// 2) 인시던트 카테고리\nconst incidentCategory =\n  base.incident_category ||\n  base.incident_category_l2 ||\n  base.incident_category_l1 ||\n  base.backendPayload?.incident_category ||\n  'monitoring';\n\n// 3) 실제 KB에 저장될 학습용 텍스트\nconst learnText = `[보안 인시던트 학습용 데이터]\n\n■ 위험도: ${risk}\n■ 로그 출처: ${source}\n■ 발생 시각: ${timestamp}\n■ 소스 IP: ${srcIp}\n■ 사용자/계정: ${userId}\n\n■ 로그 내용 (민감정보 마스킹됨):\n${redactedLog}\n\n■ PII 탐지 요약:\n${piiSummary}\n\n■ 위험도 판단 이유:\n${riskReason}\n\n■ 추천 대응:\n${recommendation}\n`;\n\n// 4) KB API로 보낼 payload\nconst kbPayload = {\n  source: \"SecurityFlow\",\n  category: incidentCategory,\n  risk,\n  text: learnText,\n  meta: {\n    log_id: id,\n    source,\n    timestamp,\n    src_ip: srcIp,\n    user_id: userId,\n    pii_regex_found: base.pii_regex_found || false,\n    pii_regex_types: base.pii_regex_types || [],\n    incident_category: incidentCategory,\n  },\n};\n\nreturn {\n  ...base,\n  learnText,\n  kbPayload,\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2128,
+        96
+      ],
+      "id": "83205fdb-f74e-4641-8ef7-964348f23bcd",
+      "name": "학습용 텍스트 생성 Code 노드"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:3001/security-kb",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.kbPayload }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        2752,
+        96
+      ],
+      "id": "4edb192c-164c-41b5-ac17-7e62af44efbd",
+      "name": "HTTP - Security KB 학습 데이터 추가",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// KB에 정상 반영된 후 호출된다고 가정\n// 백엔드 /api/logs/:id 로 PUT 날릴 페이로드 생성\n\n// 1) 우선 현재 아이템에서 시도\nlet id =\n  $json.id ||\n  ($json.backendPayload && $json.backendPayload.id);\n\n// 2) 그래도 없으면, \"HTTP Payload 준비 Code 노드\"의 출력에서 가져오기\nif (!id) {\n  const fromPayload = $item(0).$node[\"HTTP Payload 준비 Code 노드\"].json;\n  id =\n    fromPayload.id ||\n    (fromPayload.backendPayload && fromPayload.backendPayload.id);\n}\n\nif (!id) {\n  throw new Error('log id가 없습니다. (HTTP Payload 준비 Code 노드 이름이 정확한지 확인하세요)');\n}\n\nconst updatePayload = {\n  ai_learn_completed: true,\n  status: '학습 완료'\n};\n\nreturn {\n  ...$json,\n  id,\n  updatePayload,\n  updateUrl: `http://127.0.0.1:3001/api/logs/${id}`\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3344,
+        96
+      ],
+      "id": "eb490cb8-169d-470e-aa4f-fa3ce7fd890b",
+      "name": "학습 완료 상태 업데이트용 Payload 생성"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:3001/api/logs",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.backendPayload }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        624,
+        -528
+      ],
+      "id": "f22e331f-93a7-4438-96f5-ab33ee7b43a9",
+      "name": "HTTP Request (POST /api/logs)",
+      "executeOnce": false,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 로그 텍스트 가져오기 (마스킹 전/후 아무거나 있으면 사용)\nlet text = $json.Log_Detail || '';\nif (typeof text !== 'string') {\n  try {\n    text = JSON.stringify(text);\n  } catch {\n    text = String(text);\n  }\n}\ntext = text.toLowerCase();\n\n// 기본값\nlet category = 'monitoring'; // 그냥 모니터링/일반 로그\n\n// 데이터 유출/외부 전송 쪽\nif (/(backup|export|csv|sftp|ftp|download|upload|client[_ ]?list|csv 파일|백업 파일|내보내기|export)/i.test(text)) {\n  category = 'exfiltration';\n}\n// 계정 탈취/인증 관련\nelse if (/(login failed|로그인 실패|password|brute force|mfa|2fa|unauthorized|권한 없음|비인가|인증 실패)/i.test(text)) {\n  category = 'credential_abuse';\n}\n// 잘못된 공개 설정(퍼블릭 링크 등)\nelse if (/(public link|퍼블릭 링크|anyone with the link|전체공개|no auth)/i.test(text)) {\n  category = 'misconfiguration';\n}\n\nreturn {\n  ...$json,\n  incident_category: category\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1424,
+        -1136
+      ],
+      "id": "a3c00e23-3e4a-462a-8216-eebf22d653e7",
+      "name": "인시던트 유형 태깅 Code 노드"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f6935824-5ba2-4f17-9985-2a9fa3a78545",
+              "leftValue": "={{ $('HTTP Payload 준비 Code 노드').item.json.backendPayload.risk }}",
+              "rightValue": "High",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        912,
+        -384
+      ],
+      "id": "05883cbf-fe6f-4fa9-9382-3c654d4d66e7",
+      "name": "IF - High 위험인가?",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "text": "=🚨 [High] 개인정보 유출/보안 인시던트 탐지\n\n• 로그 ID: {{$json.backendPayload.id}}\n• 위험도: {{$json.backendPayload.risk}}\n• 출처: {{$json.backendPayload.source}}\n• 발생 시각: {{$json.backendPayload.timestamp}}\n\n• PII 탐지 요약:\n{{$json.backendPayload.pii_regex_summary}}\n\n• 위험도 판단 이유:\n{{$json.backendPayload.detail}}\n\n• 추천 대응:\n{{$json.backendPayload.recommendation}}\n\n(마스킹 로그)\n{{$json.backendPayload.log_detail}}\n",
+        "otherOptions": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        2224,
+        -400
+      ],
+      "id": "1e484404-4b3c-4df3-8041-0ceaada084d9",
+      "name": "Slack - High 위험 알림",
+      "webhookId": "94dc8cb2-7fb4-494a-89e6-0b062e677c2e",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "model": "solar-pro2",
+        "options": {}
+      },
+      "type": "n8n-nodes-upstage.lmChatModelUpstage",
+      "typeVersion": 1,
+      "position": [
+        4496,
+        -928
+      ],
+      "id": "ca2c5be1-fa46-4646-a729-79823c5f7cbf",
+      "name": "Upstage Solar Chat for Agent3",
+      "credentials": {
+        "upstageApi": {
+          "name": "Upstage account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-pro",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        4624,
+        -880
+      ],
+      "id": "527f6c84-676d-4456-b0a7-bf6ed3bd0dcb",
+      "name": "Google Gemini Chat Model3",
+      "credentials": {
+        "googlePalmApi": {
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=너는 기업 보안 관제센터의 AI 보안 분석 어시스턴트다.  \n입력으로 단일 보안 로그 이벤트가 주어진다.  \n이 로그는 사내 시스템에서 자동 수집된 실제 로그이며, 일부 민감정보는 [EMAIL], [PHONE], [CARD], [RRN] 등으로 마스킹 처리되어 있을 수 있다.  \n\n너의 임무:\n- 이 로그를 기반으로 개인정보 유출(exfiltration), 계정 악용(credential_abuse), 설정 오류(misconfiguration), 단순 모니터링(monitoring)인지 판단한다.\n- 운영 환경 기준으로 과장 없이 현실적인 위험도를 평가한다.\n- 실제 이메일/전화번호/카드번호/주민번호 등 원본 민감정보를 새로 생성하거나 복원하지 않고, 반드시 마스킹된 토큰([EMAIL], [PHONE], [CARD], [RRN] 등)만 사용한다.\n\n아래 정보를 보고 판단하라.\n\n[로그 본문]\n{{ $json.redactedLog || $json.Log_Detail }}\n\n[참고: 유사 인시던트 사례]\n{{ $json.kb_examples_text || '(관련 없음)' }}\n\n출력은 아래 JSON 형식으로만, 하나의 객체로 응답하라.  \n설명 문장이나 다른 텍스트는 절대 추가하지 마라.\n\n{\n  \"risk\": \"High | Medium | Safe\",\n  \"reason\": \"위험도 판단 근거를 한국어로 구체적으로 작성 (마스킹 토큰만 사용)\",\n  \"category\": \"exfiltration | credential_abuse | misconfiguration | monitoring 중 하나\",\n  \"recommendation\": \"보안 담당자에게 줄 구체적인 대응 가이드\"\n}\n\n주의사항:\n- 실제 민감정보 값은 절대 노출하지 말고, 입력에 포함된 [EMAIL], [PHONE], [CARD], [RRN] 등의 토큰만 그대로 사용하라.\n- 단순 시스템 상태 확인이나 정상 동작 수준이면 Safe로 분류하되, 반복 실패, 대량 조회, 외부 전송, 퍼블릭 공유 등은 운영 보안 기준에서 현실적으로 평가하라.\n- 유사 인시던트 사례 텍스트가 현재 로그와 비슷한 패턴인지도 참고하되, 맹목적으로 따라 하지 말고 현재 로그 내용을 우선으로 판단하라.",
+        "needsFallback": true,
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        4496,
+        -1136
+      ],
+      "id": "2a00a364-7d04-4a91-8fdb-2da433e76257",
+      "name": "LLM 위험도 평가 (Upstage/Gemini)"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// ⚙️ LLM 결과 머지 Code 노드\n// - 현재 $json에는 LLM 노드의 출력만 들어있음: { text: \"```json ... ```\" }\n// - 이전 단계 전체 필드는 $item(0).$node[\"원본 로그 마스킹 및 삭제1\"].json 에서 가져온다.\n\nconst base = $item(0).$node[\"원본 로그 마스킹 및 삭제1\"].json;\n\n// 1) LLM text 꺼내기\nlet raw = $json.text || \"\";\nif (typeof raw !== \"string\") {\n  raw = String(raw);\n}\n\n// 2) ```json, ``` 같은 코드 블록 마커 제거\nraw = raw\n  .replace(/```json/i, \"\")\n  .replace(/```/g, \"\")\n  .trim();\n\n// 3) JSON 파싱\nlet llm = {};\ntry {\n  llm = JSON.parse(raw);\n} catch (e) {\n  llm = {};\n}\n\n// 4) L1 / L2 위험도 및 카테고리 계산\n\n// L1 = 룰 기반(기존) 위험도\nconst riskL1 = base.botRisk || base.risk_1st || \"Safe\";\n// L2 = LLM이 내려준 위험도 (없으면 L1 그대로)\nconst riskL2 = llm.risk || riskL1;\n\n// 위험도 우선순위 매핑\nconst level = { Safe: 0, Medium: 1, High: 2 };\n\n// 최종 위험도 = 더 높은 레벨 우선\nlet finalRisk = \"Safe\";\nif (level[riskL1] >= level[riskL2]) {\n  finalRisk = riskL1;\n} else {\n  finalRisk = riskL2;\n}\n\n// 카테고리(L1 = 기본, L2 = LLM)\nconst categoryL1 = base.incident_category || \"monitoring\";\nconst categoryL2 = llm.category || categoryL1;\nconst finalCategory = categoryL2;\n\n// 5) 위험도/PII 기반 학습 가능 여부 자동 계산\nconst piiByRegex = !!base.pii_regex_found;\nconst piiByLLM = !!base.pii_found_1st;\nconst noPII = !piiByRegex && !piiByLLM;\nconst isRisky = finalRisk === \"High\" || finalRisk === \"Medium\";\nconst ai_learn_enabled = isRisky && noPII;\n\n// 학습 완료 여부(기존 값 유지)\nconst ai_learn_completed = base.ai_learn_completed || false;\n\n// 6) 합쳐서 반환\nreturn {\n  ...base,\n\n  // L1 / L2 세부 정보 저장\n  risk_l1: riskL1,\n  risk_l2: riskL2,\n  risk_reason_l1: base.risk_reason_1st || null,\n  risk_reason_l2: llm.reason || null,\n  recommendation_l1: base.recommendation_1st || null,\n  recommendation_l2: llm.recommendation || null,\n  incident_category_l1: categoryL1,\n  incident_category_l2: categoryL2,\n\n  // 최종 결과\n  bot_risk_final: finalRisk,\n  incident_category: finalCategory,\n\n  // 학습 관련\n  ai_learn_enabled,\n  ai_learn_completed,\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1072,
+        -528
+      ],
+      "id": "92e77ad0-9e57-4ad0-b838-9cd96781f75a",
+      "name": "LLM 결과 머지 Code 노드"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $json.updateUrl }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.updatePayload }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        4016,
+        96
+      ],
+      "id": "118a501e-c87d-4b7b-9ccc-f5f124eb5694",
+      "name": "HTTP 학습 상태 전달"
+    },
+    {
+      "parameters": {
+        "url": "http://127.0.0.1:3001/security-kb/examples",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "category",
+              "value": "={{$json.incident_category}}"
+            },
+            {
+              "name": "limit",
+              "value": "=3"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        3184,
+        -1136
+      ],
+      "id": "752b0e58-58db-492f-b44d-cec20e38e5db",
+      "name": "유사 학습 사례 가져오기 (KB Examples)",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $item(0).$node[\"원본 로그 마스킹 및 삭제1\"].json;\n\n// HTTP Request 결과(body)가 배열이면 그대로 사용, 아니면 빈 배열\nconst body = $json.body;\nconst examples = Array.isArray(body) ? body : [];\n\n// LLM 프롬프트에 바로 넣을 수 있는 텍스트로 변환\nconst examplesText = examples.length\n  ? examples\n      .map((e, idx) => {\n        const risk = e.risk || 'Unknown';\n        const cat = e.meta?.incident_category || 'unknown';\n        return `[예시 ${idx + 1}] (위험도: ${risk}, 유형: ${cat})\\n${e.text}`;\n      })\n      .join('\\n\\n---\\n\\n')\n  : '현재 이 카테고리에 대한 학습 사례가 없습니다. 일반적인 보안 관제 기준으로만 판단하세요.';\n\nreturn {\n  ...base,\n  kb_examples: examples,\n  kb_examples_text: examplesText,   // 🔹 이걸 LLM 프롬프트에서 쓸 거야\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3856,
+        -1136
+      ],
+      "id": "50403994-12ef-4996-98ae-6d7be0486716",
+      "name": "Code – \"KB 예시 붙이기\"",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "content": "🌐 유사 학습 사례 가져오기 (KB Examples)\n\n현재 인시던트의 유형(`incident_category`)과 동일하거나 유사한  \n**보안 사례(학습 데이터)** 를 지식베이스(KB)에서 자동 조회하는 노드입니다.\n\n📡 API 구성\n- **Method:** GET  \n- **URL:** `http://127.0.0.1:3001/security-kb/examples`\n- **Query Parameters:**  \n  • `category` → `{{$json.incident_category}}`  \n  • `limit` → `3`  \n- **Authentication:** None (내부 API 통신)\n\n📋 작동 방식\n1️⃣ 이전 노드(“인시던트 유형 태깅”)에서 태깅된 카테고리(`exfiltration`, `credential_abuse`, 등)를 가져옴  \n2️⃣ API 호출로 KB 내부의 유사한 보안 사례 3건을 검색  \n3️⃣ 반환된 JSON 배열을 이후 노드(KB 비교 요약 / 학습 후보 등록)에 전달  \n\n🧠 응답 예시\n```json\n[\n  {\n    \"title\": \"고객정보 export.csv 유출\",\n    \"category\": \"exfiltration\",\n    \"summary\": \"CRM에서 고객데이터가 외부 메일로 전송됨\",\n    \"recommendation\": \"파일 export 기능 접근권한 제한\"\n  },\n  ...\n]\n",
+        "height": 896,
+        "width": 592
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2944,
+        -1888
+      ],
+      "id": "91437fb7-9e21-471e-bd4d-aeb43011cc56",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "🧠 Code – “KB 예시 붙이기”\n\n### 이 노드는 **“유사 학습 사례 가져오기(KB Examples)”** 단계에서 불러온 보안 사례들을  \n### AI 모델(LLM)이나 대시보드가 읽기 좋은 **텍스트 형태로 변환하는 전처리 노드**입니다.\n\n---\n\n### 📋 핵심 역할\n- KB API에서 가져온 `examples` 배열(JSON)을 받아  \n  → 각 사례를 `[예시 n] (위험도 / 유형)` 형식으로 보기 쉽게 정리  \n  → LLM 프롬프트나 보안 요약 문장에 바로 사용할 수 있는 텍스트(`kb_examples_text`)로 변환  \n- 예시가 없을 경우, `\"현재 이 카테고리에 대한 학습 사례가 없습니다...\"` 기본 안내문 자동 생성\n\n---\n\n### 🧩 작동 구조\n1️⃣ **입력**  \n   - `$json.body`: KB API 응답 (배열 또는 단일 객체)  \n   - `$item(0).$node[\"원본 로그 마스킹 및 삭제1\"].json`: 분석된 로그 정보(base)  \n\n2️⃣ **처리 로직**\n   - `Array.isArray(body)`로 응답 형태 확인  \n   - 각 사례를 `map()`으로 순회하며 텍스트 포맷팅  \n   - `[예시 1] (위험도: High, 유형: exfiltration)\\n내용...`  \n   - 사례 간 구분선 `---` 삽입  \n\n3️⃣ **출력 필드**\n   - `kb_examples` → JSON 배열 (원본 형태)  \n   - `kb_examples_text` → 프롬프트용 텍스트 (LLM 입력에 바로 사용 가능)\n\n---\n\n### ⚙️ 노드 설정 요약\n- **Mode:** Run Once for All Items  \n- **Execute Once:** ✅ 켜짐 (모든 아이템 한 번에 처리)  \n- **Always Output Data:** ❌ 꺼짐 (데이터 없을 때는 미출력)  \n- **On Error:** Stop Workflow (형식 오류 시 조기 중단)\n\n---\n\n### 💡 한 줄 요약\n> 과거 보안 사례(KB)를 AI가 이해 가능한 텍스트로 자동 변환하는  \n> “AI 학습 연결 허브” 노드 — LLM 프롬프트 직전 핵심 단계.\n",
+        "height": 1184,
+        "width": 640
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3584,
+        -2176
+      ],
+      "id": "bc1ab158-96f6-480e-99a5-8e7987841526",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "🤖 LLM 위험도 평가 (Upstage / Gemini)\n\n### 이 노드는 **Upstage Solar 또는 Google Gemini 모델**을 사용하여  \n### 최종적으로 보안 로그의 **위험도(Risk Level) / 유형(Category)** / **대응 가이드(Recommendation)** 를  \n### AI 기반으로 평가하는 단계입니다.\n\n---\n\n### 🧩 입력 데이터\n이전 단계들에서 이미 전처리 완료된 데이터가 들어옵니다:\n- `redactedLog`: 원본 로그의 마스킹 버전 ([EMAIL], [PHONE], [CARD], [RRN] 등)  \n- `kb_examples_text`: KB에서 불러온 유사 보안사례 요약  \n- 로그의 시스템 정보(`system`, `source`, `timestamp`, 등)\n\n---\n\n### 🧠 프롬프트 구조 (Prompt Template)\nAI에게 주어진 역할:\n> “너는 기업 보안 관제센터의 AI 보안 분석 어시스턴트다.”  \n\nAI는 아래 기준에 따라 로그를 분석합니다:\n1️⃣ 로그가 어떤 유형인지 분류  \n   - `exfiltration`: 개인정보나 데이터 유출  \n   - `credential_abuse`: 계정 탈취 / 인증 시도 / 로그인 실패  \n   - `misconfiguration`: 잘못된 공개, 설정 오류  \n   - `monitoring`: 단순 시스템 상태 / 정상 로그  \n2️⃣ 위험도 판단 (High / Medium / Safe)  \n   - 실제 운영 환경에서의 현실적 수준으로 평가  \n   - 단순 반복 알람은 Safe, 외부 전송·퍼블릭 노출은 High  \n3️⃣ 대응 가이드 작성  \n   - 담당자에게 전달할 실무 수준 조치 제안  \n   - 예: “메일 게이트웨이 차단”, “CSV 전송 경로 확인” 등  \n4️⃣ 민감정보는 절대 복원하지 않음  \n   - 오직 `[EMAIL]`, `[PHONE]`, `[CARD]`, `[RRN]` 등의 토큰만 사용 가능  \n\n---\n\n### 🧾 출력(JSON 형식)\nAI는 반드시 아래 구조로만 응답합니다 👇  \n```json\n{\n  \"risk\": \"High | Medium | Safe\",\n  \"reason\": \"위험도 판단 근거를 한국어로 작성 (토큰만 사용)\",\n  \"category\": \"exfiltration | credential_abuse | misconfiguration | monitoring\",\n  \"recommendation\": \"보안 담당자용 구체적 대응 가이드\"\n}\n",
+        "height": 1472,
+        "width": 704,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4256,
+        -2176
+      ],
+      "id": "672d1ef7-865e-4e81-b7da-e1367be7d976",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "content": "⚙️ LLM 결과 머지 Code 노드\n\n### 이 노드는 **AI 분석 결과(LLM)** 와 **룰 기반 분석 결과(L1)** 를 병합하여  \n### 최종 위험도 / 카테고리 / 학습 가능 여부를 계산하는 통합 로직입니다.  \n### 즉, \"AI 판단 + 규칙 판단\"을 합쳐 실제 운영 기준의 **최종 Risk 결과**를 만드는 단계입니다.\n\n---\n\n### 🧩 주요 입력\n- `$json.text`: LLM의 응답 결과(JSON 문자열, ```json``` 블록 포함 가능)  \n- `$item(0).$node[\"원본 로그 마스킹 및 삭제1\"].json`: 이전 전체 로그 데이터(base)  \n  → 여기에는 기존 룰 기반 위험도, PII 탐지 결과, 마스킹 로그 등이 포함됨\n\n---\n\n### 🧠 작동 로직 요약\n1️⃣ **LLM 결과 정제**\n   - ```json ... ``` 마커 제거 후 JSON 파싱  \n   - 파싱 실패 시 `{}` 처리 (오류 내지 않음)\n\n2️⃣ **L1 / L2 위험도 병합**\n   - L1 = 기존 룰 기반 위험도 (`botRisk`)  \n   - L2 = LLM이 산출한 위험도 (`llm.risk`)  \n   - 두 값을 비교해 **더 높은 위험 레벨**을 최종으로 선택  \n     (예: L1=Medium, L2=High → 최종 High)\n\n3️⃣ **유형(Category) 병합**\n   - L1 = `incident_category` (기본 태그)\n   - L2 = LLM의 `category` 값  \n   - 최종 Category = L2 우선 사용\n\n4️⃣ **학습 대상 여부 판단**\n   - PII(개인정보) 존재 여부: `pii_regex_found`, `pii_found_1st`  \n   - 위험도: High / Medium 이상이면 \"위험 로그\"로 간주  \n   - `ai_learn_enabled = isRisky && noPII`  \n     → **위험한데 개인정보는 없는 로그만 학습 후보로 지정**\n\n5️⃣ **기존 학습 완료 플래그 유지**\n   - `ai_learn_completed` 값이 있으면 그대로 보존\n\n---\n\n### 🧾 출력 필드\n| 필드명 | 설명 |\n|:--|:--|\n| `risk_l1`, `risk_l2` | 룰기반 / AI 기반 각각의 위험도 |\n| `bot_risk_final` | 최종 위험도 (High / Medium / Safe) |\n| `incident_category` | 최종 유형 (exfiltration / credential_abuse 등) |\n| `risk_reason_l1`, `risk_reason_l2` | 각 위험 판단의 근거 텍스트 |\n| `recommendation_l1`, `recommendation_l2` | 대응 가이드 |\n| `ai_learn_enabled` | 학습 대상 여부 (true/false) |\n| `ai_learn_completed` | 이미 학습 완료된 데이터 여부 |\n\n---\n\n### ⚙️ 노드 설정 요약\n- **Mode:** Run Once for Each Item  \n- **Language:** JavaScript  \n- **On Error:** Stop Workflow  \n- **Always Output Data:** Off  \n- **Retry On Fail:** Off  \n\n---\n\n### 💡 역할 요약\n> 이 노드는 “룰 기반 탐지 + AI 판단”을 합쳐  \n> **최종 위험도 및 학습 가능 로그를 결정하는 파이프라인의 최종 판단자.**\n>  \n> 이후 단계(노션 전송 / 백엔드 등록 / 학습 큐 삽입 등)로 전달되는 **최종 결과물 생성기.**\n",
+        "height": 1488,
+        "width": 816,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1728,
+        -912
+      ],
+      "id": "1076031a-3c97-4c16-a80a-7a292f69b4ca",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "content": "🚨 IF - High 위험인가?\n\n### 이 노드는 **최종 백엔드 전송 결과 중 위험도가 ‘High’인 로그만 필터링**하는 조건 분기 노드입니다.  \n### 즉, AI와 룰 기반 분석이 모두 끝난 뒤 **즉각 대응이 필요한 심각한 보안 인시던트만** 후속 처리로 넘깁니다.\n\n---\n\n### ⚙️ 조건 설정\n| 항목 | 값 |\n|:--|:--|\n| **Left Value** | `{{$('HTTP Payload 준비 Code 노드').item.json.backendPayload.risk}}` |\n| **Operator** | is equal to |\n| **Right Value** | `High` |\n\n✅ **Convert types where required:** 활성화  \n➡️ 문자열 비교 시 대소문자 및 자료형 오류 방지  \n\n---\n\n### 🧠 역할 요약\n> 분석된 모든 로그 중에서  \n> “High 위험”만 후속 자동조치(알림·차단·학습 등) 단계로 보내는 **필터 게이트웨이**입니다.  \n\n> 이후 Slack 알림, 차단 요청 API, KB 학습 등록 등  \n> 여러 액션의 시작점으로 연결됩니다.\n",
+        "height": 512,
+        "width": 880,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        912,
+        -912
+      ],
+      "id": "d7a6785e-47ac-4702-b599-eeacb36fcd52",
+      "name": "Sticky Note7"
+    },
+    {
+      "parameters": {
+        "content": "---\n\n# 🧠 **AIM: AI + IM**\n\n## 🎯 *Aim the Security of Finance*\n\n---\n\n# 🚀 **SecureFlow – AI 자율 학습 파이프라인 (Full Automation)**\n\n---\n\n## 🟦 **프로젝트 목표**\n\n### ⚡ 실시간 금융 보안 로그를 받아\n\n### **PII 탐지 → 위험도 평가 → 자동 학습 등록 → 상태 갱신**\n\n까지 전과정을 자동으로 수행하는\n\n### **완전 자율형 AI 보안 분석 시스템**\n\n---\n\n# 🧩 **전체 흐름 요약**\n\n---\n\n## 1️⃣ **보안 로그 수집 Webhook**\n\n📥 외부 시스템(SIEM, 서버, API, 금융 플랫폼 등)에서\n실시간 보안 로그를 수신하는 **입력 게이트웨이**.\n→ `POST /webhook` 으로 로그 이벤트 자동 수집\n\n---\n\n## 2️⃣ **원본 로그 마스킹 / PII 탐지**\n\n🧱 이메일, 전화번호, 주민번호, IP 등 **민감정보 정규식 탐지 + 자동 마스킹**\n➡️ [EMAIL], [PHONE], [RRN], [CARD], [IP] 형태로 변환\n\n---\n\n## 3️⃣ **LLM 위험도 평가 (Upstage Solar / Gemini)**\n\n🧠 로그 문맥을 분석하여\n**High / Medium / Low / Safe**\n중 하나로 **위험도 분류**\n➡️ 예: 데이터 유출, 인증 실패, 권한 오남용 등\n\n---\n\n## 4️⃣ **결과 병합 및 Payload 준비**\n\n🧩 AI 판단 결과 + PII 탐지 결과를 병합\n🗂️ `backendPayload` JSON 생성\n\n> 포함 항목: 위험도, 사유, 추천 대응, 학습 여부, PII 요약, 로그 본문\n\n---\n\n## 5️⃣ **HTTP Request → 백엔드 저장 (`/api/logs`)**\n\n💾 분석 결과를 **IM-Bank 백엔드 데이터베이스**에 등록\n📊 대시보드, Notion, 시각화 시스템과 연동\n\n---\n\n## 6️⃣ **IF - High 위험인가?**\n\n🚨 위험도가 **High**이면 즉시 **Slack/Webhook 알림 전송**\n\n> “🚨 개인정보 유출 탐지됨 — 즉시 보안팀 확인 필요”\n\n---\n\n## 7️⃣ **IF - 학습 대상인가?**\n\n🧠 PII가 없고 **High/Medium 위험 로그**만 필터링\n→ AI 학습용으로 전송되는 **안전한 데이터만 선별**\n\n---\n\n## 8️⃣ **학습용 텍스트 생성**\n\n🧾 로그 상세, 위험도, 추천 대응, PII 요약을 포함한\nAI 학습용 텍스트(`learnText`) 자동 생성\n➡️ `kbPayload` 구조로 변환하여 학습 DB 전송 준비\n\n---\n\n## 9️⃣ **HTTP - Security KB 학습 데이터 추가 (`/security-kb`)**\n\n📘 생성된 `kbPayload`를 **보안 지식베이스(KB)** 로 POST 전송\n→ AI가 유사 패턴 학습 및 모델 개선 수행\n\n---\n\n## 🔟 **학습 완료 상태 업데이트용 Payload 생성**\n\n🧩 학습 성공 시 원본 로그의 상태를\n**“학습 완료”** 로 업데이트할 JSON 페이로드 생성\n\n> `{ ai_learn_completed: true, status: \"학습 완료\" }`\n\n---\n\n## 11️⃣ **HTTP 학습 상태 전달 (`PUT /api/logs/:id`)**\n\n🔁 백엔드 DB에 PUT 요청으로 상태 갱신\n📡 대시보드와 Notion에서 “학습 완료” 자동 표시\n\n---\n\n# 🔁 **SecureFlow 전체 파이프라인 다이어그램**\n\n```\n[Webhook 수집]\n   ↓\n[PII 탐지 및 마스킹]\n   ↓\n[LLM 위험도 평가]\n   ↓\n[결과 병합 + 백엔드 저장]\n   ↓\n[High 위험 Slack 알림]\n   ↓\n[학습 대상 자동 분기]\n   ↓\n[학습 텍스트 생성 → KB 등록]\n   ↓\n[학습 완료 상태 자동 갱신]\n```\n\n---\n\n# ⚙️ **핵심 구성요소**\n\n| 🧱 단계 | 🧩 기능         | 🧭 설명                                      |\n| ----- | ------------- | ------------------------------------------ |\n| 🟢 1  | **PII 탐지**    | 이메일·전화·주민번호·IP 등 개인정보 자동 탐지 및 마스킹          |\n| 🟠 2  | **AI 위험도 분석** | Upstage Solar / Gemini 기반 맥락 분석 (행위·패턴 단위) |\n| 🔵 3  | **자동 학습 등록**  | 위험 로그 중 PII 없는 케이스를 학습 데이터로 등록             |\n| 🟣 4  | **상태 동기화**    | KB 반영 완료 후 PUT으로 “학습 완료” 표시                |\n| 🔴 5  | **실시간 경보**    | High 위험 감지 시 즉시 Slack/Webhook 경보           |\n\n---\n\n# 🧠 **핵심 기술 스택**\n\n| 구분               | 기술                                       |\n| ---------------- | ---------------------------------------- |\n| **Automation**   | n8n (Node.js 기반 시각형 워크플로)                |\n| **AI Engine**    | Upstage Solar Pro 2 / Google Gemini 1.5  |\n| **Backend API**  | Express.js (`/api/logs`, `/security-kb`) |\n| **Database**     | MongoDB / Notion API 연동                  |\n| **Notification** | Slack API / Webhook Alerts               |\n| **Regex Engine** | Node.js Custom PII Detector              |\n\n---\n\n# 🔒 **AIM Security Philosophy**\n\n> 🧭 *“AI가 단순 분석을 넘어, 스스로 학습하며 금융 보안을 강화한다.”*\n\n✅ AI는 사람보다 빠르게 위험을 감지한다.\n✅ 개인정보는 항상 마스킹 후 처리된다.\n✅ 금융 데이터 중심의 **보안 × AI 융합 파이프라인**을 지향한다.\n\n---\n\n# 🧾 **한 줄 요약**\n\n> 🧠 **AIM (AI + IM)** 은\n> *“Aim the Security of Finance”* 를 모토로,\n> 금융 보안 로그를 자동 분석·학습·갱신하는\n> **완전 자율형 보안 AI 파이프라인**입니다.\n\n---\n\n# 📜 **시각적 강조용 (포스터 문구 예시)**\n\n> 💬 “AI가 로그를 읽고, 판단하고, 학습한다.”\n>\n> ⚙️ SecureFlow — **보안 로그 자동분석 + AI 자율 학습 파이프라인**\n>\n> 🧩 Powered by **AIM (AI + IM)** : *Aim the Security of Finance*\n\n---",
+        "height": 4640,
+        "width": 976,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2720,
+        -1936
+      ],
+      "id": "bdd41ab6-99c0-45bf-a39d-57682d2a359e",
+      "name": "Sticky Note8"
+    },
+    {
+      "parameters": {
+        "content": "[보안 로그 수집 Webhook]\n\n외부 시스템(SIEM, 서버, API 등)에서 발생한 보안 이벤트를  \nHTTP POST 방식으로 실시간 수신하는 시작 노드입니다.\n\n- URL: n8n이 자동 생성한 Webhook 주소\n- Method: POST (JSON 형식 로그 수신)\n- 응답 모드: 즉시(Immediately)\n- 역할: 로그 수집 게이트 → 이후 단계로 JSON 전달\n\n💡 예시 로그 (SecureFlow generator 한 건)\n{\n  \"system\": \"MAIL_GATEWAY\",\n  \"source\": \"메일 게이트웨이\",\n  \"time\": \"2025-11-10T07:23:12.345Z\",\n  \"client_ip\": \"10.2.34.56\",\n  \"user_id\": \"sales01\",\n  \"raw_log\": \"2025-11-10T07:23:12.345Z MAILGW[outbound] ALERT user=sales01 rcpt=bob@gmail.com attachment=\\\"client_list.csv\\\" records=2345 sample_name=\\\"김철수\\\" sample_phone=\\\"010-1234-5678\\\" sample_email=\\\"alice@corp.local\\\" action=allowed request_id=req-4f3a9b2c7d8e\",\n  \"env\": \"lab\"\n}\n\n📌 작동 방식:\n- 실제 운영에서는 서버·SIEM·API 등에서 발생한 이벤트가 이 Webhook으로 POST 전송됨.\n- 테스트 환경에서는 SecureFlow Incident Generator가 위와 같은 JSON을 자동 생성해 시뮬레이션.\n- 각 로그는 PII 여부, 위험도, 카테고리를 포함하지 않음.\n  → 이후 파이프라인(정규식 탐지·AI 위험도 판단)이 직접 분석.\n\n➡️ 다음 노드(Code: Webhook 전처리)로 전달되어  \n   로그 필드 정규화 및 스키마 통합이 수행됩니다.\n",
+        "height": 896,
+        "width": 592,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1328,
+        -1888
+      ],
+      "id": "6b417c2a-64c3-4d50-bf5e-7c258456b24d",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "[Code: Webhook 전처리]\n\n여러 형태로 들어오는 Webhook JSON을\nAI 파이프라인이 쓰기 좋은 “통합 스키마”로 맞춰주는 노드입니다.\n\n1) body 위치 통합\n- $json.body, meta.extra.body, 루트 $json 등\n  어디에 있든 실제 로그 본문을 body 로 모아 줌.\n\n2) 원본 로그 문자열(Log_Detail) 추출\n- body.raw_log / raw_log / message / log 중 하나를 우선 사용.\n- 객체로 오면 JSON 문자열로 변환.\n- 그래도 없으면 body 전체(또는 $json 전체)를 문자열로 fallback.\n\n3) 공통 메타 필드 정규화\n- systemCode : body.system 또는 $json.system (없으면 UNKNOWN)\n- sourceLabel: 사람이 보는 출처 이름(메일 게이트웨이, 파일 서버 등)\n- time       : time/timestamp 값을 ISO 형식으로 통일\n- client_ip, user_id, user_agent, dest_ip, event_type 등도 한 번에 정리.\n\n4) 최종 출력 스키마\n- Log_Detail : 원본 로그 한 줄(마스킹 전 원문)\n- system     : 내부 시스템 코드 (예: MAIL_GATEWAY)\n- source     : UI에 보여줄 한글 라벨\n- timestamp / occurred_at : 발생 시각(UTC ISO)\n- meta.source_ip / dest_ip / user_id / event_type / user_agent\n- meta.extra : 들어온 원본 JSON 전체를 그대로 보존 (디버깅용)\n\n➡️ 뒤에 오는 모든 노드는 이 스키마만 믿고 쓰면 되기 때문에,\n센서·서버마다 로그 포맷이 달라도 파이프라인은 그대로 유지됩니다.\n",
+        "height": 896,
+        "width": 544
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -672,
+        -1888
+      ],
+      "id": "909a2f26-209f-400e-8082-c0cea79f7e60",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "{ } PII 정규식 사전 탐지\n\n정규식 기반으로 로그 내 개인정보(PII) 패턴을 빠르게 감지하는 노드입니다.  \nAI 분석 전 “기계적 필터” 역할을 수행하여,  \nPII 포함 로그를 미리 표시하거나 학습 제외 대상으로 분리합니다.\n\n📌 탐지 대상 정규식\n- EMAIL : 이메일 주소 (`user@domain.com`)\n- PHONE : 전화번호 (`010-xxxx-xxxx`)\n- RRN   : 주민등록번호 (6-7 자리)\n- CARD  : 카드번호 (13~16 자리)\n- IP    : IPv4 주소 (`192.168.x.x`)\n\n📋 동작 요약\n1) 입력된 `$json.Log_Detail` 로그 문자열을 가져옴  \n   (문자열이 아니면 JSON.stringify 로 변환)\n2) 각 정규식으로 매칭 후 총합·타입별 카운트 계산\n3) IP 주소는 별도 집계 (민감 PII 판정에는 제외)\n4) 탐지 결과를 사람이 읽기 쉬운 요약문으로 생성\n\n🧠 출력 필드\n- `pii_regex_hits` : 총 탐지된 민감 PII 수 (이메일/전화/주민/카드)\n- `pii_regex_types`: 탐지된 타입 목록 (예: [\"EMAIL\", \"PHONE\"])\n- `pii_regex_found`: 민감 PII 존재 여부 (true/false)\n- `pii_regex_summary`: 사람 읽기용 요약 (“이메일 2건, 전화번호 1건 탐지됨”)\n- `ip_hits` / `ip_found`: IP 주소 매칭 결과\n\n➡️ 다음 단계(AI 위험도 판단 노드)에서  \n   `pii_regex_found` 값을 이용해 **PII 포함 여부에 따라 학습/분석 분기**를 결정합니다.\n",
+        "height": 896,
+        "width": 528
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        -1888
+      ],
+      "id": "ae309b5d-dd3b-48b8-8239-024563c7b85d",
+      "name": "Sticky Note9"
+    },
+    {
+      "parameters": {
+        "content": "{ } Fake AI Risk (Demo) Code\n\n정규식 탐지 결과를 기반으로,  \nAI 없이 룰(rule) 기반으로 로그의 **위험도(High/Medium/Safe)** 를 평가하는 데모 노드입니다.  \n실제 운영에서는 이 자리에 Upstage Solar / Gemini / OpenAI 모델이 연결됩니다.\n\n📋 분석 기준\n1️⃣ 민감 PII(이메일·전화·주민·카드)가 있으면 → **High**\n2️⃣ PII는 없지만 “유출/백업” + “에러/인증 실패” 키워드 함께 있으면 → **High**\n3️⃣ 유출·오류·인증 실패 키워드만 있어도 → **Medium**\n4️⃣ 그 외 → **Safe**\n\n🧠 사용되는 주요 키워드\n- 오류/경고: ERROR, ALERT, FAIL, CRITICAL, WARNING 등  \n- 유출/백업: backup, dump, export, upload, csv, client_list, “유출”, “메일” 등  \n- 인증실패: login failed, unauthorized, “권한 없음”, “인증 실패” 등  \n\n📊 출력 필드\n- `risk_1st` : 1차 위험도 (High / Medium / Safe)\n- `risk_reason_1st` : 위험도 판단 사유 (룰 기반 설명)\n- `recommendation_1st` : 대응 권장사항\n- `botRisk` : 최종 위험도 (후속 노드가 이 필드 사용)\n- `bot_risk_final` : 향후 LLM 병합 버전 호환용\n\n💡 데모 목적\n- AI 없이도 “위험도 판단 흐름”을 시각화하기 위함  \n- 이후 단계에서 실제 AI 노드(Upstage Solar 등)로 교체 가능  \n- `botRisk` 필드를 중심으로 학습 여부·자동 조치 노드와 연동\n",
+        "height": 896,
+        "width": 592
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        528,
+        -1888
+      ],
+      "id": "0f027446-db97-400d-b70f-2cab8211c3d6",
+      "name": "Sticky Note10"
+    },
+    {
+      "parameters": {
+        "content": "{ } 인시던트 유형 태깅 Code 노드\n\n로그의 텍스트 내용을 분석해 **보안 사고 유형(Incident Category)** 을 자동 분류하는 노드입니다.  \nAI 모델 없이 정규식 기반으로 작동하며,  \n이후 단계(KB 검색 / 학습 여부 판단)에서 카테고리 기준으로 연관 사례를 조회합니다.\n\n📋 분류 규칙\n1️⃣ 데이터 유출 / 외부 전송 관련  \n   → \"backup\", \"export\", \"csv\", \"ftp\", \"upload\", \"client_list\",  \n      \"백업 파일\", \"내보내기\" 등이 포함되면 **`exfiltration`**  \n   (예: CRM에서 고객리스트 export, 메일로 CSV 첨부 전송)\n\n2️⃣ 계정 탈취 / 인증 실패 관련  \n   → \"login failed\", \"unauthorized\", \"비인가\", \"권한 없음\",  \n      \"password\", \"brute force\", \"mfa\", \"2fa\" 등이 포함되면 **`credential_abuse`**  \n   (예: 관리자 계정 로그인 실패 다수, MFA 우회 시도 등)\n\n3️⃣ 잘못된 공개 설정 / 퍼블릭 링크 관련  \n   → \"public link\", \"anyone with the link\", \"전체공개\",  \n      \"no auth\", \"퍼블릭 링크\" 등이 포함되면 **`misconfiguration`**  \n   (예: 내부 문서를 퍼블릭 링크로 공유)\n\n4️⃣ 위 세 가지에 해당하지 않으면  \n   → 기본값: **`monitoring`** (일반 로그, 모니터링 목적)\n\n🧠 출력 필드\n- `incident_category` : 분류 결과 (`exfiltration` / `credential_abuse` / `misconfiguration` / `monitoring`)\n\n💡 역할 요약\n- AI 없이도 로그 패턴만으로 카테고리 자동 분류\n- 이후 노드(KB 검색, 학습 파이프라인)가 동일 스키마로 사용 가능\n- 향후 LLM 분석 단계에서도 동일 필드를 그대로 재활용\n",
+        "height": 896,
+        "width": 592
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1168,
+        -1888
+      ],
+      "id": "bd8c5bd5-1042-46ec-b99c-35ab7ed81ef4",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "{ } 학습 대상 여부 계산 Code 노드\n\nAI가 “이 로그를 학습시켜도 안전한가?”를 자동 판단하는 노드입니다.  \n앞선 위험도 판단 / PII 탐지 결과를 종합하여  \n**“PII 없는 유의미한 보안 로그만 학습 대상으로 허용”** 하는 핵심 필터 단계입니다.\n\n📋 계산 로직 요약\n1️⃣ 1단계 위험도 (rule 기반)  \n   → `$json.botRisk` 또는 `$json.risk_1st` 값 사용 (없으면 'Safe')\n\n2️⃣ 2단계 위험도 (LLM 기반)  \n   → `$json.risk_2nd` 값이 존재하면 우선 사용  \n   → LLM이 없다면 1단계 결과를 그대로 사용\n\n3️⃣ 최종 위험도(`finalRisk`) 계산  \n   → L2가 ‘Unknown’이 아니면 L2 우선  \n   → 그 외엔 L1 값 유지\n\n4️⃣ High / Medium 이상이면 **“위험 로그”로 간주**  \n   → `isRisky = true`\n\n5️⃣ 정규식 / LLM 기준 PII 여부 확인  \n   - `pii_regex_found`: 정규식 탐지 결과  \n   - `pii_found_1st`: 1차 LLM 탐지 결과  \n   → 둘 다 false여야 `noPII = true`\n\n6️⃣ 최종 학습 가능 여부  \n   → `ai_learn_enabled = isRisky && noPII`\n\n🧠 출력 필드\n- `final_risk_for_learning` : 위험도 (High / Medium / Safe)\n- `ai_learn_enabled` : 학습 허용 여부 (true = 학습 대상, false = 제외)\n\n💡 의미\n- 민감정보(PII)가 포함된 로그는 **절대 학습 금지**  \n- 위험도가 있는 보안 이벤트 중 **PII가 없는 케이스만 학습 큐로 전송**  \n- 완전 자동화 시나리오: AI → KB 저장 → 학습 완료 상태로 전환까지 이어짐\n",
+        "height": 896,
+        "width": 512
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1808,
+        -1888
+      ],
+      "id": "52b8f794-e261-4659-9135-ddd6f55e59f3",
+      "name": "Sticky Note11"
+    },
+    {
+      "parameters": {
+        "content": "{ } 원본 로그 마스킹 및 삭제1\n\n정규식 기반으로 로그 내 개인정보(PII)와 IP 주소를 자동 마스킹하는 노드입니다.  \nAI 학습 및 대시보드 노출 전에 **민감정보를 완전히 제거/익명화** 하여  \n학습 안전성과 개인정보보호를 동시에 보장합니다.\n\n📋 처리 단계\n1️⃣ 입력 로그 가져오기  \n   → `$json.Log_Detail` (전체 원본 로그)\n\n2️⃣ PII 및 IP 주소 마스킹  \n   - 이메일: `[EMAIL]`  \n   - 전화번호: `[PHONE]`  \n   - 주민등록번호: `[RRN]`  \n   - 카드번호: `[CARD]`  \n   - IP 주소: `[IP]`\n\n3️⃣ 대시보드용 짧은 미리보기 생성  \n   - 최대 400자까지만 표시  \n   - 초과 시 `...[생략됨]` 으로 자동 절단\n\n4️⃣ 출력 정책  \n   - `redactedLog` : 전체 마스킹된 버전  \n   - `redactedSnippet` : 짧은 미리보기 버전  \n   - 원본은 `meta.extra.body.raw_log` 내부에만 남겨 백엔드에서 필요 시만 접근 가능\n\n💡 핵심 역할\n- **AI 학습 안전성 확보** : 민감정보 포함 데이터가 절대 학습되지 않음  \n- **개인정보 보호 강화** : 대시보드 및 KB 저장 시 항상 `[MASKED]` 상태 유지  \n- **정책 일관성 유지** : 전 파이프라인에서 `redactedLog` 필드만 참조하도록 통일\n",
+        "height": 896,
+        "width": 528
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2368,
+        -1888
+      ],
+      "id": "458a93f3-c99d-4ae8-95e9-9b511928c61c",
+      "name": "Sticky Note12"
+    },
+    {
+      "parameters": {
+        "content": "📦 HTTP Payload 준비 Code 노드\n\n### 이 노드는 **n8n 파이프라인의 최종 결과를 백엔드 API나 대시보드로 보낼 수 있는 형태의 JSON 페이로드로 정리하는 단계**입니다.  \n### 즉, \"AI 분석 결과 + 룰 기반 데이터 + 학습 상태\"를 모두 통합하여 한 번에 전송할 수 있도록 구성합니다.\n\n---\n\n### 🧩 주요 기능 요약\n1️⃣ **로그 ID 생성**\n   - 기존 ID가 없을 경우 `LOG-<timestamp>-<random>` 형태로 자동 생성  \n   - 예: `LOG-1731254923000-048`\n\n2️⃣ **최종 위험도 계산**\n   - L2(LLM 결과) → L1(룰 기반 결과) 순서로 우선 적용  \n   - 최종 필드: `risk` (High / Medium / Safe)\n\n3️⃣ **PII 요약 및 세부 정보**\n   - `pii_regex_summary`: 정규식 기반 PII 탐지 요약  \n   - `pii_regex_types`: 탐지된 PII 유형 리스트  \n   - `ip_found`, `ip_hits`: IP 존재 여부 및 개수\n\n4️⃣ **위험 판단 근거 및 대응 가이드**\n   - `risk_reason_l2 → l1 → 1st` 순서로 세부 원인 텍스트 선택  \n   - `recommendation_l2 → l1 → 1st` 순서로 대응 가이드 선택\n\n5️⃣ **로그 출처 및 표시 데이터**\n   - `source`: 시스템 or 로그 발생 위치 (`system`, `source`, `meta` 등)  \n   - `log_detail`: 실제 표시용 로그(마스킹된 버전 우선 사용)\n\n6️⃣ **학습 상태 자동 표시**\n   - `ai_learn_enabled = true` → “학습 후보”  \n   - `ai_learn_completed = true` → “학습 완료”  \n   - 둘 다 아니면 “일반 로그”\n\n7️⃣ **인시던트 유형 필드 정리**\n   - `incident_category`: 최종 유형  \n   - `incident_category_l1`, `incident_category_l2`: 각 단계별 세부 분류\n\n---\n\n### 🧾 최종 출력 구조\n```json\n{\n  \"id\": \"LOG-1731254923000-048\",\n  \"risk\": \"High\",\n  \"summary\": \"전화번호 2건 탐지됨 (정규식 기준)\",\n  \"detail\": \"대량 백업 전송 및 인증 실패 발생\",\n  \"recommendation\": \"보안팀 통보 및 접근 차단\",\n  \"source\": \"MAIL_GATEWAY\",\n  \"log_detail\": \"[EMAIL] → 외부 도메인 송신 탐지\",\n  \"timestamp\": \"2025-11-10T15:32:00Z\",\n  \"ai_learn_enabled\": true,\n  \"ai_learn_completed\": false,\n  \"status\": \"학습 후보\",\n  \"incident_category\": \"exfiltration\",\n  \"backendPayload\": { ... 동일 구조 ... }\n}\n",
+        "height": 1200,
+        "width": 880,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -864,
+        -624
+      ],
+      "id": "a06c04b8-fe9a-426d-a9e6-e708718d6225",
+      "name": "Sticky Note13"
+    },
+    {
+      "parameters": {
+        "content": "🌐 HTTP Request (POST /api/logs)\n\n### 이 노드는 n8n 파이프라인의 **최종 전송 단계**로,  \n### 앞 단계에서 구성된 `backendPayload` JSON 데이터를  \n### 보안 서버(백엔드 API)에 실제 POST 요청으로 전송합니다.\n\n---\n\n### 🧩 주요 기능 요약\n1️⃣ **요청 URL**\n   - `http://127.0.0.1:3001/api/logs`\n   - 로컬에서 실행 중인 IM-Bank 백엔드 서버의 보안 로그 수집 엔드포인트  \n   - 운영 배포 시 `https://im-bank-secureflow-server/api/logs` 형태로 변경 가능\n\n2️⃣ **HTTP Method**\n   - `POST`  \n   - 새로운 보안 로그 데이터를 서버에 등록함\n\n3️⃣ **전송 데이터**\n   - Body → `{{$json.backendPayload}}`  \n   - 앞선 Code 노드에서 완성된 JSON 객체 그대로 전송  \n   - 예시:\n```json\n{\n  \"id\": \"LOG-1731254923000-048\",\n  \"risk\": \"High\",\n  \"summary\": \"전화번호 2건 탐지됨\",\n  \"detail\": \"백업.zip 외부 전송 및 인증 실패 발생\",\n  \"recommendation\": \"보안팀 통보 및 접근 차단\",\n  \"ai_learn_enabled\": true,\n  \"ai_learn_completed\": false,\n  \"incident_category\": \"exfiltration\",\n  \"status\": \"학습 후보\",\n  \"timestamp\": \"2025-11-10T15:32:00Z\"\n}\n",
+        "height": 800,
+        "width": 720,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        64,
+        -624
+      ],
+      "id": "53230f4d-c376-449d-8f3d-940980eeb842",
+      "name": "Sticky Note14"
+    },
+    {
+      "parameters": {
+        "content": "💬 Slack - High 위험 알림\n\n### 이 노드는 “IF - High 위험인가?”에서 필터링된 결과를 받아  \n### **보안팀의 Slack 채널로 즉시 경보 메시지를 전송**합니다.\n\n---\n\n### ⚙️ 주요 설정\n| 항목 | 값 |\n|:--|:--|\n| **Resource** | Message |\n| **Operation** | Send |\n| **Send Message To** | Channel |\n| **Message Type** | Simple Text Message |\n| **Channel** | (예: `#security-alerts`) |\n\n---\n\n### 🧩 메시지 포맷\n🚨 [High] 개인정보 유출/보안 인시던트 탐지\n\n• 로그 ID: {{ $json.backendPayload.id }}\n• 위험도: {{ $json.backendPayload.risk }}\n• 출처: {{ $json.backendPayload.source }}\n• 발생 시각: {{ $json.backendPayload.timestamp }}\n\n• PII 탐지 요약:\n{{ $json.backendPayload.pii_regex_summary }}\n\n• 위험도 판단 이유:\n{{ $json.backendPayload.detail }}\n\n• 추천 대응:\n{{ $json.backendPayload.recommendation }}\n\n(마스킹 로그)\n{{ $json.backendPayload.log_detail }}\n\n\n---\n\n### 🧠 역할 요약\n> **실시간 보안관제 알림 시스템의 핵심 알림 노드.**  \n>  \n> High 위험 로그가 감지되면 즉시 Slack으로 경보를 보내  \n> 사람이 직접 확인·조치할 수 있도록 알림을 전달합니다.  \n>  \n> 이 경로는 추후 “차단 API 호출” 또는 “자동 차단 승인 요청”으로 확장 가능합니다.",
+        "height": 928,
+        "width": 528
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        -912
+      ],
+      "id": "e14d80fa-0c21-4601-aa0f-6720fbaf5f1f",
+      "name": "Sticky Note15"
+    },
+    {
+      "parameters": {
+        "content": "🧠 IF - 학습 대상인가?\n\n### 이 노드는 AI 분석 결과 중  \n### **학습 가능 플래그(`ai_learn_enabled`)가 true인 로그만 필터링**하는 조건 분기입니다.  \n\n### 즉, 실제 개인정보(PII)가 포함되지 않고,  \n### 위험도가 Medium 이상인 **‘AI 학습에 적합한 보안 사례’**만 추려서  \n### 지식베이스(Secure KB)로 자동 전송합니다.\n\n---\n\n### ⚙️ 조건 설정\n| 항목 | 값 |\n|:--|:--|\n| **Left Value** | `{{$('HTTP Payload 준비 Code 노드').item.json.ai_learn_enabled}}` |\n| **Operator** | is true |\n| **Convert types where required** | ✅ (활성화) |\n\n---\n\n### 📋 내부 로직 개요\n- **ai_learn_enabled = true** 인 조건은 다음과 같이 계산됨  \n  (이전 Code 노드에서 자동 판단)\n  ```js\n  const isRisky = (risk === 'High' || risk === 'Medium');\n  const noPII = !piiByRegex && !piiByLLM;\n  const ai_learn_enabled = isRisky && noPII;\n",
+        "height": 608,
+        "width": 880,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        896,
+        272
+      ],
+      "id": "a780a172-715c-4595-b723-a3f14ddc92a8",
+      "name": "Sticky Note16"
+    },
+    {
+      "parameters": {
+        "content": "🧩 학습용 텍스트 생성 Code 노드\n\n### 이 노드는 `ai_learn_enabled === true` 상태의 로그만 입력으로 받아  \n### AI 학습 시스템(KB)에 등록 가능한 형태의 **학습용 텍스트와 메타 데이터(JSON)**를 생성합니다.  \n\n### 즉, 민감정보가 제거된 로그를 **LLM 학습 데이터 포맷으로 변환**하는 역할을 합니다.\n\n---\n\n### ⚙️ 핵심 동작\n1️⃣ **입력:**  \n   - 이전 단계(`IF - 학습 대상인가?`)에서 True인 로그만 유입  \n   - PII 제거된 로그(`redactedLog`), 위험도(`risk`), 출처(`source`) 등 필드 사용  \n\n2️⃣ **처리:**  \n   - 로그 정보를 사람이 읽기 쉬운 형태의 학습 텍스트로 구성  \n   - PII 요약 / 위험도 판단 근거 / 추천 대응 등을 포함  \n   - 각 항목은 AI가 문맥을 이해하기 좋도록 구조화  \n\n3️⃣ **출력:**  \n   - `learnText`: 실제 KB에 등록될 학습 문장  \n   - `kbPayload`: API로 전송할 학습 데이터 JSON 구조  \n\n---\n\n### 📦 생성되는 학습 텍스트 예시\n[보안 인시던트 학습용 데이터]\n\n■ 위험도: High\n■ 로그 출처: internal_mail_gateway\n■ 발생 시각: 2025-11-10T15:32:00Z\n■ 소스 IP: 192.168.0.14\n■ 사용자/계정: admin01\n\n■ 로그 내용 (민감정보 마스킹됨):\n메일 첨부파일 [EMAIL], [CARD] 검출됨\n\n■ PII 탐지 요약:\n민감 PII 미탐지\n\n■ 위험도 판단 이유:\nSMTP 대량 전송 및 파일명 'backup.zip' 포함\n\n■ 추천 대응:\n보안팀 확인 및 외부 전송 차단\n\n\n---\n\n### 🧠 주요 필드 요약\n| 필드명 | 설명 |\n|:--|:--|\n| `learnText` | KB에 직접 등록될 학습 문장 (문자열) |\n| `kbPayload` | API 전송용 JSON (category, risk, meta 포함) |\n| `incident_category` | 인시던트 유형 (없으면 기본값: monitoring) |\n| `pii_regex_found` | PII 탐지 여부 |\n| `meta.*` | 로그 ID, IP, 사용자, 발생시간 등 상세정보 |\n\n---\n\n### 💡 역할 요약\n> ✅ **AI 재학습용 안전 데이터 포맷터**  \n>  \n> 실제 로그를 기반으로, 민감정보 없이  \n> “위험 패턴만 학습” 가능한 텍스트를 자동 생성.  \n>  \n> 이후 노드(HTTP - Security KB 학습 데이터 추가)로 전달되어  \n> 보안 지식베이스에 자동 등록됩니다.",
+        "height": 1360,
+        "width": 688
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1824,
+        272
+      ],
+      "id": "8af143b5-7485-4727-8a35-780d867bb1d2",
+      "name": "Sticky Note17"
+    },
+    {
+      "parameters": {
+        "content": "📡 HTTP - Security KB 학습 데이터 추가\n\n### 이 노드는 앞 단계(`학습용 텍스트 생성 Code 노드`)에서 만들어진  \n### `kbPayload` 데이터를 **보안 지식베이스(KB)** 서버로 전송하는 역할을 합니다.  \n\n### 즉, AI가 새롭게 학습할 수 있는 “안전한 보안 사례”를  \n### 백엔드 DB에 자동 등록하는 구간입니다.\n\n---\n\n### ⚙️ 요청 설정\n| 항목 | 값 |\n|:--|:--|\n| **Method** | POST |\n| **URL** | `http://127.0.0.1:3001/security-kb` |\n| **Body Content Type** | JSON |\n| **Body** | `{{ $json.kbPayload }}` |\n| **Authentication** | None (내부망 API 통신) |\n| **Always Output Data** | ✅ 활성화 |\n\n---\n\n### 🧩 전송 데이터 구조 (예시)\n```json\n{\n  \"source\": \"SecurityFlow\",\n  \"category\": \"exfiltration\",\n  \"risk\": \"High\",\n  \"text\": \"[보안 인시던트 학습용 데이터] ...\",\n  \"meta\": {\n    \"log_id\": \"LOG-1731222023456-101\",\n    \"source\": \"internal_mail_gateway\",\n    \"timestamp\": \"2025-11-10T15:30:00Z\",\n    \"src_ip\": \"192.168.1.44\",\n    \"user_id\": \"admin01\",\n    \"pii_regex_found\": false,\n    \"pii_regex_types\": [],\n    \"incident_category\": \"exfiltration\"\n  }\n}\n",
+        "height": 800,
+        "width": 544
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2544,
+        272
+      ],
+      "id": "730229e7-83b7-4591-9d13-57387f0303d7",
+      "name": "Sticky Note18"
+    },
+    {
+      "parameters": {
+        "content": "✅ 학습 완료 상태 업데이트용 Payload 생성\n\n### 이 노드는 Security KB에 학습 데이터가 정상 등록된 후,  \n### 해당 로그를 **“학습 완료” 상태로 표시**하기 위한  \n### 백엔드 `/api/logs/:id` 업데이트 요청용 Payload를 생성합니다.  \n\n### 즉, “이 로그는 이제 AI 학습에 반영되었다”를 시스템에 알려주는 단계입니다.\n\n---\n\n### ⚙️ 주요 동작\n1️⃣ **로그 ID 확보**\n- 우선 현재 아이템(`$json.id` or `$json.backendPayload.id`)에서 `id`를 찾음  \n- 만약 없으면 `HTTP Payload 준비 Code 노드`의 출력에서 보조적으로 가져옴  \n- ID가 없으면 에러를 발생시켜 디버깅 가능하게 설계됨\n\n2️⃣ **업데이트 페이로드 생성**\n```json\n{\n  \"ai_learn_completed\": true,\n  \"status\": \"학습 완료\"\n}\n```\n3️⃣ 결과값으로 반환되는 필드\n\n필드명\t설명\nid\t학습 완료 처리할 로그의 고유 ID\nupdatePayload\tPUT 요청에 사용될 JSON 본문\nupdateUrl\thttp://127.0.0.1:3001/api/logs/{id} 형태의 REST 엔드포인트\n\n\n🧠 처리 순서\nHTTP - Security KB 학습 데이터 추가\n   ↓\n학습 완료 상태 업데이트용 Payload 생성\n   ↓\nHTTP - Security Log 상태 갱신 (PUT /api/logs/:id)",
+        "height": 832,
+        "width": 544
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3120,
+        272
+      ],
+      "id": "2bf9a6f3-6ec4-424a-ab60-8f2d9b7245a4",
+      "name": "Sticky Note19"
+    },
+    {
+      "parameters": {
+        "content": "🔁 HTTP 학습 상태 전달\n\n### 이 노드는 AI 학습 데이터가 Security KB에 성공적으로 등록된 후,  \n### 해당 로그의 상태를 **‘학습 완료’로 백엔드에 반영하는 API 호출**을 수행합니다.  \n\n### 즉, “이 로그는 이미 AI 학습에 반영되었음”을 시스템 전체에 알려주는  \n### **자율 학습 파이프라인의 마지막 단계**입니다.\n\n---\n\n### ⚙️ 주요 설정\n| 항목 | 값 |\n|:--|:--|\n| **Method** | PUT |\n| **URL** | `{{ $json.updateUrl }}`  → 예: `http://127.0.0.1:3001/api/logs/LOG-1731234567` |\n| **Body Content Type** | JSON |\n| **Body** | `{{ $json.updatePayload }}` |\n| **Authentication** | None |\n| **Always Output Data** | ✅ 활성화 |\n\n---\n\n### 🧩 전송 예시\n```http\nPUT /api/logs/LOG-1731234567\nContent-Type: application/json\n\n{\n  \"ai_learn_completed\": true,\n  \"status\": \"학습 완료\"\n}\n```\n🧠 핵심 역할\n\n1️⃣ 학습 완료 동기화\nSecurity KB 등록이 끝난 로그의 상태를 백엔드 /api/logs/:id에 반영.\n→ 프론트엔드 대시보드나 Notion 등 연동 서비스에서\n“학습 완료” 상태가 즉시 표시됨.\n\n2️⃣ 자동화 루프 마무리\n이 단계를 통해 “수집 → 분석 → 학습 → 완료 보고”의\n완전한 자동 사이클이 형성됨.\n사람의 개입 없이 AI가 지속적으로 학습 가능한 구조.",
+        "height": 928,
+        "width": 768,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3696,
+        272
+      ],
+      "id": "1633f680-2440-4a9f-b0a5-348e65a2a444",
+      "name": "Sticky Note20"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "보안 로그 수집 Webhook": {
+      "main": [
+        [
+          {
+            "node": "Code: Webhook 전처리",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "원본 로그 마스킹 및 삭제1": {
+      "main": [
+        [
+          {
+            "node": "유사 학습 사례 가져오기 (KB Examples)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PII 정규식 사전 탐지": {
+      "main": [
+        [
+          {
+            "node": "Fake AI Risk (Demo) Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - 학습 대상인가?": {
+      "main": [
+        [
+          {
+            "node": "학습용 텍스트 생성 Code 노드",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Code: Webhook 전처리": {
+      "main": [
+        [
+          {
+            "node": "PII 정규식 사전 탐지",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fake AI Risk (Demo) Code": {
+      "main": [
+        [
+          {
+            "node": "인시던트 유형 태깅 Code 노드",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "학습 대상 여부 계산 Code 노드": {
+      "main": [
+        [
+          {
+            "node": "원본 로그 마스킹 및 삭제1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Payload 준비 Code 노드": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request (POST /api/logs)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "학습용 텍스트 생성 Code 노드": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Security KB 학습 데이터 추가",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Security KB 학습 데이터 추가": {
+      "main": [
+        [
+          {
+            "node": "학습 완료 상태 업데이트용 Payload 생성",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "학습 완료 상태 업데이트용 Payload 생성": {
+      "main": [
+        [
+          {
+            "node": "HTTP 학습 상태 전달",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request (POST /api/logs)": {
+      "main": [
+        [
+          {
+            "node": "IF - High 위험인가?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF - 학습 대상인가?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "인시던트 유형 태깅 Code 노드": {
+      "main": [
+        [
+          {
+            "node": "학습 대상 여부 계산 Code 노드",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - High 위험인가?": {
+      "main": [
+        [
+          {
+            "node": "Slack - High 위험 알림",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upstage Solar Chat for Agent3": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "LLM 위험도 평가 (Upstage/Gemini)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model3": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "LLM 위험도 평가 (Upstage/Gemini)",
+            "type": "ai_languageModel",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "LLM 위험도 평가 (Upstage/Gemini)": {
+      "main": [
+        [
+          {
+            "node": "LLM 결과 머지 Code 노드",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM 결과 머지 Code 노드": {
+      "main": [
+        [
+          {
+            "node": "HTTP Payload 준비 Code 노드",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "유사 학습 사례 가져오기 (KB Examples)": {
+      "main": [
+        [
+          {
+            "node": "Code – \"KB 예시 붙이기\"",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code – \"KB 예시 붙이기\"": {
+      "main": [
+        [
+          {
+            "node": "LLM 위험도 평가 (Upstage/Gemini)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP 학습 상태 전달": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Seoul",
+    "callerPolicy": "workflowsFromSameOwner",
+    "executionTimeout": 180,
+    "availableInMCP": false,
+    "errorWorkflow": "GdMrIkBDH3Y3feO3",
+    "timeSavedPerExecution": 5
+  },
+  "tags": []
+}
