@@ -2,7 +2,7 @@
 
 보안 로그를 받아서 개인정보를 지우고, 위험도를 매기고, 쓸 만한 건만 골라 지식베이스에 쌓는 파이프라인입니다.
 
-2025 대구울산경북 AI Agent 해커톤 출품작이고 결선 최우수상을 받았습니다. 팀 AIM (AI + IM).
+대구대학교 AI·SW Agent 해커톤 경진대회 출품작이고 최우수상을 받았습니다. 팀 AIM (AI + IM).
 
 <p>
   <img src="https://img.shields.io/badge/n8n-EA4B71?style=flat-square&logo=n8n&logoColor=white"/>
