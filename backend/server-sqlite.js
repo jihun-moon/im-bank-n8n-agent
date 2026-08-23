@@ -16,6 +16,7 @@ const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
 const Database = require("better-sqlite3");
+const rateLimit = require("express-rate-limit");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -28,6 +29,40 @@ const DB_FILE = path.join(DATA_DIR, "secureflow.db");
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+// ==========================================================
+// 로그 출력용 문자열 정리
+// ==========================================================
+// 외부에서 받은 값을 그대로 console 에 찍으면 개행을 섞어 없는 로그 줄을
+// 만들어 넣거나 터미널 제어문자를 흘려보낼 수 있다. 여긴 보안 로그를
+// 모으는 자리라 로그가 위조되면 조사 기록 자체를 못 믿게 된다.
+// 개행과 제어문자를 지우고 길이도 잘라서 한 줄로만 남긴다.
+const LOG_MAX_LEN = 500;
+
+function safeLog(value) {
+  let text;
+
+  if (value === null || value === undefined) {
+    text = String(value);
+  } else if (typeof value === "object") {
+    try {
+      text = JSON.stringify(value);
+    } catch (e) {
+      text = "[직렬화 불가]";
+    }
+  } else {
+    text = String(value);
+  }
+
+  if (typeof text !== "string") text = "";
+
+  return text
+    .replace(/\r\n/g, " ")
+    .replace(/\n/g, " ")
+    .replace(/\r/g, " ")
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
+    .slice(0, LOG_MAX_LEN);
 }
 
 // ==========================================================
@@ -239,6 +274,17 @@ const runtimeMetricsOverride = {
 // ==========================================================
 app.use(cors());
 app.use(express.json({ limit: "5mb" }));
+
+// 디버그 조회는 logs / kb_items 를 통째로 훑어서 한 번에 부담이 크다.
+// 호출 횟수를 IP 단위로 제한한다. n8n 수집(POST /api/logs)과
+// 대시보드 SSE(/events)에는 걸지 않아 기존 흐름은 그대로 돈다.
+const debugLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1분
+  limit: 60, // IP 당 1분에 60회
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: "요청이 너무 잦습니다. 잠시 후 다시 시도하세요." },
+});
 
 // ==========================================================
 // 📊 요약 정보 계산 유틸 (대시보드 & 디버그 공용)
@@ -608,9 +654,12 @@ app.post("/api/logs", (req, res) => {
     broadcast({ type: "log", payload: saved });
   }
 
-  console.log(
-    `[LOG UPSERT] ${row.log_id} | ${row.risk} | ${row.title || ""}`
-  );
+  // CodeQL 은 safeLog 안의 치환을 함수 경계 너머로 인정하지 않는다.
+  // js/log-injection 문서가 권장하는 형태 그대로 호출 지점에서 편다.
+  const upsertId = safeLog(row.log_id).replace(/\n|\r/g, "");
+  const upsertRisk = safeLog(row.risk).replace(/\n|\r/g, "");
+  const upsertTitle = safeLog(row.title || "").replace(/\n|\r/g, "");
+  console.log(`[LOG UPSERT] ${upsertId} | ${upsertRisk} | ${upsertTitle}`);
 
   return res.json({ ok: true, log: saved, summary: getSummary() });
 });
@@ -762,7 +811,9 @@ app.put("/api/logs/:id", (req, res) => {
     broadcast({ type: "log", payload: saved });
   }
 
-  console.log(`[LOG UPDATE] ${id} ←`, body);
+  const updateId = safeLog(id).replace(/\n|\r/g, "");
+  const updateBody = safeLog(body).replace(/\n|\r/g, "");
+  console.log("[LOG UPDATE] %s ← %s", updateId, updateBody);
 
   res.json({ ok: true, log: saved, summary: getSummary() });
 });
@@ -866,8 +917,11 @@ app.patch("/api/logs/:id/learn-complete", (req, res) => {
     broadcast({ type: "log", payload: saved });
   }
 
+  const learnId = safeLog(patch.log_id).replace(/\n|\r/g, "");
+  const learnEnabled = safeLog(patch.ai_learn_enabled).replace(/\n|\r/g, "");
+  const learnDone = safeLog(patch.ai_learn_completed).replace(/\n|\r/g, "");
   console.log(
-    `[LEARN COMPLETE] ${patch.log_id} : enabled=${patch.ai_learn_enabled}, completed=${patch.ai_learn_completed}`
+    `[LEARN COMPLETE] ${learnId} : enabled=${learnEnabled}, completed=${learnDone}`
   );
 
   res.json({ ok: true, log: saved, summary: getSummary() });
@@ -899,10 +953,10 @@ function handleAddKb(req, res) {
 
   const info = stmtInsertKb.run(row);
 
+  const kbRisk = safeLog(row.risk || "?").replace(/\n|\r/g, "");
+  const kbLog = safeLog(row.log_id || "N/A").replace(/\n|\r/g, "");
   console.log(
-    `[KB ADD] id=${info.lastInsertRowid}, risk=${row.risk || "?"}, log=${
-      row.log_id || "N/A"
-    }`
+    `[KB ADD] id=${info.lastInsertRowid}, risk=${kbRisk}, log=${kbLog}`
   );
 
   res.json({ ok: true, id: info.lastInsertRowid });
@@ -953,7 +1007,7 @@ app.get("/api/summary", (req, res) => {
   res.json(getSummary());
 });
 
-app.get("/debug/logs", (req, res) => {
+app.get("/debug/logs", debugLimiter, (req, res) => {
   const rows = db
     .prepare(
       `SELECT id, log_id, risk, incident_category,
@@ -971,7 +1025,7 @@ app.get("/debug/logs", (req, res) => {
   });
 });
 
-app.get("/debug/kb", (req, res) => {
+app.get("/debug/kb", debugLimiter, (req, res) => {
   const rows = stmtSelectKbAll.all();
   res.json({
     count: rows.length,
@@ -984,7 +1038,7 @@ app.get("/debug/kb", (req, res) => {
   });
 });
 
-app.get("/debug/learn-queue", (req, res) => {
+app.get("/debug/learn-queue", debugLimiter, (req, res) => {
   const rows = stmtSelectLearnQueue.all();
   res.json({
     count: rows.length,
@@ -998,7 +1052,7 @@ app.get("/debug/learn-queue", (req, res) => {
   });
 });
 
-app.get("/debug/logs/:id", (req, res) => {
+app.get("/debug/logs/:id", debugLimiter, (req, res) => {
   const { id } = req.params;
   const row = stmtSelectLogById.get(id);
   if (!row) {
