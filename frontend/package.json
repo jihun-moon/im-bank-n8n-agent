@@ -48,7 +48,7 @@
     "body-parser": "^1.20.6",
     "brace-expansion": "^1.1.18 || ^2.1.4",
     "flatted": "^3.4.2",
-    "follow-redirects": "^1.16.0",
+    "follow-redirects": "^1.16.1",
     "form-data": "^3.0.5",
     "glob": "^7.2.3 || ^10.5.0",
     "http-proxy-middleware": "^2.0.10",
