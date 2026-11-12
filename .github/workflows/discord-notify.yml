@@ -26,7 +26,7 @@ jobs:
         run: |
           set -u
           if [ -z "${DISCORD_WEBHOOK:-}" ]; then
-            echo "DISCORD_WEBHOOK not set — skipping (configure in repo Settings → Secrets to enable)."
+            echo "DISCORD_WEBHOOK not set: skipping (configure in repo Settings → Secrets to enable)."
             exit 0
           fi
           # Strip any whitespace/CR/LF from secret (in case it was set with trailing newline)
