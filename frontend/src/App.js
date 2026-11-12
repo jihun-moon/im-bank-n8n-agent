@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import "./App.css";
 
-// 🔗 백엔드 엔드포인트 (Node server-sqlite.js)
+// 백엔드 엔드포인트 (Node server-sqlite.js)
 const NODE_BACKEND_BASE = "http://YOUR_SERVER_IP:3001";
 
 function App() {
@@ -18,10 +18,10 @@ function App() {
   const [lastFetchAt, setLastFetchAt] = useState(null);
   const [latestLogTime, setLatestLogTime] = useState(null);
 
-  // 🔧 Garbage 로그 기본은 숨기기
+  // Garbage 로그 기본은 숨기기
   const [hideGarbage, setHideGarbage] = useState(true);
 
-  // ✅ 운영 모니터링 지표 상태
+  // 운영 모니터링 지표 상태
   const [metrics, setMetrics] = useState({
     windowMinutes: 5,
     totalLast: 0,
@@ -32,10 +32,10 @@ function App() {
     learnedLast: 0,
   });
 
-  // ✅ SSE가 "최초 연결인지 / 재연결인지" 구분하기 위한 ref
+  // SSE가 "최초 연결인지 / 재연결인지" 구분하기 위한 ref
   const firstConnectRef = useRef(true);
 
-  // 🔹 /api/summary 호출
+  // /api/summary 호출
   async function fetchSummary() {
     try {
       const res = await fetch(`${NODE_BACKEND_BASE}/api/summary`);
@@ -46,7 +46,7 @@ function App() {
     }
   }
 
-  // 🔹 /metrics 호출
+  // /metrics 호출
   async function fetchMetrics() {
     try {
       const res = await fetch(`${NODE_BACKEND_BASE}/metrics`);
@@ -58,7 +58,7 @@ function App() {
     }
   }
 
-  // 🔹 초기 1회 fetch + SSE 연결
+  // 초기 1회 fetch + SSE 연결
   useEffect(() => {
     let eventSource = null;
     let retryTimeout = null;
@@ -117,7 +117,7 @@ function App() {
         try {
           const payload = JSON.parse(event.data);
 
-          // ✅ 서버가 { type: "logs", payload: [...] } 형식으로 전체 캐시 전달
+          // 서버가 { type: "logs", payload: [...] } 형식으로 전체 캐시 전달
           if (
             payload &&
             payload.type === "logs" &&
@@ -150,7 +150,7 @@ function App() {
             return;
           }
 
-          // ✅ 서버가 { type: "log", payload: {...} } 형식으로 단일 로그 브로드캐스트
+          // 서버가 { type: "log", payload: {...} } 형식으로 단일 로그 브로드캐스트
           if (payload && payload.type === "log" && payload.payload) {
             const newLog = payload.payload;
 
@@ -183,7 +183,7 @@ function App() {
             return;
           }
 
-          // ✅ 예전 버전 호환: 서버가 그냥 배열 자체를 보내는 경우
+          // 예전 버전 호환: 서버가 그냥 배열 자체를 보내는 경우
           if (Array.isArray(payload)) {
             setLogs((prev) => {
               if (JSON.stringify(prev) === JSON.stringify(payload)) return prev;
@@ -210,7 +210,7 @@ function App() {
             return;
           }
 
-          // ✅ 다른 타입 혹은 heartbeat 등은 무시
+          // 다른 타입 혹은 heartbeat 등은 무시
         } catch (err) {
           // heartbeat 등으로 인한 파싱 에러는 조용히 무시
         }
@@ -228,7 +228,7 @@ function App() {
     initialLoad();
     connectSSE();
 
-    // 🔁 백엔드/SSE가 잠깐 끊겨도 10초마다 운영 지표 보정
+    // 백엔드/SSE가 잠깐 끊겨도 10초마다 운영 지표 보정
     metricsTimer = setInterval(() => {
       fetchMetrics();
     }, 10000);

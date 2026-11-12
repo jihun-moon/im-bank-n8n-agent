@@ -21,7 +21,7 @@ module.exports = {
       name: "secureflow-backend",
       script: "./server-sqlite.js",
       cwd: "./backend",
-      watch: false,            // ❗ 로그 초기화 방지를 위해 watch 끔
+      watch: false,            // 로그 초기화 방지를 위해 watch 끔
       env: {
         NODE_ENV: "production",
         PORT: 3001,

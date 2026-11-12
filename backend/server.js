@@ -1,14 +1,14 @@
 // ==========================================================
-// 🧠 SecureFlow / im-bank-n8n-agent Backend Server (SQLite + Metrics 완성본)
+// SecureFlow / im-bank-n8n-agent Backend Server (SQLite + Metrics 완성본)
 // ==========================================================
 // - n8n → 로그 분석 결과 수신 (POST /api/logs)
 // - React Dashboard → 실시간 로그 표시 (SSE /events)
 // - Security KB 관리 및 예시 조회 (/security-kb, /api/kb, /security-kb/examples)
 // - 학습 상태 반영 (PATCH /api/logs/:id/learn-complete)
-// - 💾 로그: SQLite(secureflow.db / logs 테이블)
-// - 💾 KB  : SQLite(secureflow.db / kb_items 테이블)
-// - 📤 KB Export: /kb/export, /kb/export-ndjson (전체 재학습용)
-// - 📈 운영 지표: /metrics (최근 N분 처리량, Garbage 비율, 평균 처리시간 등)
+// - 로그: SQLite(secureflow.db / logs 테이블)
+// - KB  : SQLite(secureflow.db / kb_items 테이블)
+// - KB Export: /kb/export, /kb/export-ndjson (전체 재학습용)
+// - 운영 지표: /metrics (최근 N분 처리량, Garbage 비율, 평균 처리시간 등)
 // ==========================================================
 
 const express = require("express");
@@ -22,7 +22,7 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // ==========================================================
-// 📁 데이터 디렉토리 / 파일 설정
+// 데이터 디렉토리 / 파일 설정
 // ==========================================================
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const DB_FILE = path.join(DATA_DIR, "secureflow.db");
@@ -66,7 +66,7 @@ function safeLog(value) {
 }
 
 // ==========================================================
-// 💾 SQLite 초기화 (logs / kb_items 테이블)
+// SQLite 초기화 (logs / kb_items 테이블)
 // ==========================================================
 const db = new Database(DB_FILE);
 
@@ -95,7 +95,7 @@ db.exec(`
 
     meta_json TEXT,
 
-    -- 🔹 운영 모니터링용 신규 컬럼
+    -- 운영 모니터링용 신규 컬럼
     processing_time_ms INTEGER,
     is_garbage INTEGER,
     garbage_reason TEXT,
@@ -105,7 +105,7 @@ db.exec(`
   );
 `);
 
-// 🔹 기존 DB에도 컬럼이 없으면 추가 (실패해도 무시)
+// 기존 DB에도 컬럼이 없으면 추가 (실패해도 무시)
 try {
   db.exec(`ALTER TABLE logs ADD COLUMN processing_time_ms INTEGER`);
 } catch (e) {}
@@ -241,7 +241,7 @@ const stmtCountKb = db.prepare(`
 `);
 
 // ==========================================================
-// 🧩 미들웨어
+// 미들웨어
 // ==========================================================
 app.use(cors());
 app.use(express.json({ limit: "5mb" }));
@@ -258,7 +258,7 @@ const debugLimiter = rateLimit({
 });
 
 // ==========================================================
-// 📊 요약 정보 계산 유틸 (대시보드 & 디버그 공용)
+// 요약 정보 계산 유틸 (대시보드 & 디버그 공용)
 // ==========================================================
 function getSummary() {
   const total = db.prepare("SELECT COUNT(*) AS c FROM logs").get().c;
@@ -317,7 +317,7 @@ function getSummary() {
   };
 }
 
-// 🔹 운영 지표 계산 함수
+// 운영 지표 계산 함수
 function getMetrics(windowMinutes = 5) {
   const now = Date.now();
   const sinceIso = new Date(
@@ -362,7 +362,7 @@ function getMetrics(windowMinutes = 5) {
     ? Math.round(avgProcessingRow.avgMs)
     : 0;
 
-  // 🔹 간이 Queue 대기 건수
+  // 간이 Queue 대기 건수
   const queuePending = db
     .prepare(
       `SELECT COUNT(*) AS c
@@ -390,7 +390,7 @@ function getMetrics(windowMinutes = 5) {
   };
 }
 
-// 🔹 /metrics 엔드포인트
+// /metrics 엔드포인트
 app.get("/metrics", (req, res) => {
   try {
     const windowMinutes = Math.max(
@@ -406,7 +406,7 @@ app.get("/metrics", (req, res) => {
 });
 
 // ==========================================================
-// 🔥 SSE (Server-Sent Events) – 실시간 스트리밍
+// SSE (Server-Sent Events) – 실시간 스트리밍
 // ==========================================================
 const SSE_CACHE_LIMIT = 500;
 let logsCache = [];
@@ -448,7 +448,7 @@ app.get("/events", (req, res) => {
   });
 });
 
-// 🔂 15초마다 heartbeat 전송
+// 15초마다 heartbeat 전송
 setInterval(() => {
   const payload = JSON.stringify({
     type: "heartbeat",
@@ -460,14 +460,14 @@ setInterval(() => {
 }, 15000);
 
 // ==========================================================
-// 🧱 기본 라우트
+// 기본 라우트
 // ==========================================================
 app.get("/", (req, res) => {
-  res.send("✅ im-bank-n8n-agent backend (SQLite + Metrics) running");
+  res.send("im-bank-n8n-agent backend (SQLite + Metrics) running");
 });
 
 // ==========================================================
-// 🚀 [1] n8n → 로그 저장 (신규/갱신)
+// [1] n8n → 로그 저장 (신규/갱신)
 // ==========================================================
 app.post("/api/logs", (req, res) => {
   const log = req.body || {};
@@ -568,7 +568,7 @@ app.post("/api/logs", (req, res) => {
 });
 
 // ==========================================================
-// 📜 [2] 로그 조회 / 일반 상태 업데이트 (프론트 + n8n 공용)
+// [2] 로그 조회 / 일반 상태 업데이트 (프론트 + n8n 공용)
 // ==========================================================
 app.get("/api/logs", (req, res) => {
   const limit = Number(req.query.limit) || 500;
@@ -702,7 +702,7 @@ app.put("/api/logs/:id", (req, res) => {
 });
 
 // ==========================================================
-// 🎓 [2-1] 학습 상태 전용 업데이트 (학습 워커용)
+// [2-1] 학습 상태 전용 업데이트 (학습 워커용)
 // ==========================================================
 app.patch("/api/logs/:id/learn-complete", (req, res) => {
   const { id } = req.params;
@@ -793,7 +793,7 @@ app.patch("/api/logs/:id/learn-complete", (req, res) => {
 });
 
 // ==========================================================
-// 🧠 [3] Security KB 학습 데이터 추가 (SQLite kb_items)
+// [3] Security KB 학습 데이터 추가 (SQLite kb_items)
 // ==========================================================
 function handleAddKb(req, res) {
   const item = req.body || {};
@@ -831,7 +831,7 @@ app.post("/security-kb", handleAddKb);
 app.post("/api/kb", handleAddKb);
 
 // ==========================================================
-// 📚 [3-1] KB 예시 조회 (유사 학습 사례)
+// [3-1] KB 예시 조회 (유사 학습 사례)
 // ==========================================================
 function handleGetKbExamples(req, res) {
   const { category, risk, limit = 3 } = req.query;
@@ -849,7 +849,7 @@ app.get("/security-kb/examples", handleGetKbExamples);
 app.get("/api/kb/examples", handleGetKbExamples);
 
 // ==========================================================
-// 📤 [3-2] KB 전체 Export (재학습 / 백업용)
+// [3-2] KB 전체 Export (재학습 / 백업용)
 // ==========================================================
 app.get("/kb/export", (req, res) => {
   const rows = stmtSelectKbAll.all();
@@ -866,7 +866,7 @@ app.get("/kb/export-ndjson", (req, res) => {
 });
 
 // ==========================================================
-// 📊 [4] 대시보드 요약 / 디버그
+// [4] 대시보드 요약 / 디버그
 // ==========================================================
 app.get("/api/summary", (req, res) => {
   res.json(getSummary());
@@ -927,10 +927,10 @@ app.get("/debug/logs/:id", debugLimiter, (req, res) => {
 });
 
 // ==========================================================
-// 🚦 서버 시작
+// 서버 시작
 // ==========================================================
 app.listen(PORT, "0.0.0.0", () => {
   console.log(
-    `✅ SecureFlow SQLite backend (Metrics 포함) listening on http://0.0.0.0:${PORT}`
+    `SecureFlow SQLite backend (Metrics 포함) listening on http://0.0.0.0:${PORT}`
   );
 });
